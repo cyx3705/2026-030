@@ -1,0 +1,59 @@
+# HistoryJanus baseline begin
+*.bak
+*.buildwithskipanalyzers
+*.cache
+*.dwl
+*.dwl2
+*.elk
+*.eod
+*.eox
+*.flk
+*.idb
+*.ilk
+*.lck
+*.log
+*.lref
+*.obj
+*.pdb
+*.slk
+*.suo
+*.tlog
+*.tmp
+*.up2date
+*.user
+*.vsidx
+*.xlk
+# HistoryJanus baseline end
+
+# IDE and editor state
+.vs/
+.idea/
+.vscode/
+*.suo
+*.user
+*.userosscache
+*.sln.docstates
+
+# Build, dependency, test, and scratch output
+**/bin/
+**/obj/
+**/node_modules/
+TestResults/
+artifacts/
+work/
+
+# Local and generated files
+*.bak
+*.cache
+*.log
+*.pdb
+*.tmp
+
+# EPLAN machine-local database state
+*.eod
+*.eox
+*.elk
+*.flk
+*.lck
+*.slk
+*.xlk

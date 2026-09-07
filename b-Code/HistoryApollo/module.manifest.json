@@ -1,0 +1,12 @@
+{
+  "schemaVersion": 1,
+  "type": "HistoryVulcan.Module",
+  "name": "HistoryApollo",
+  "version": "0.1.0",
+  "description": "模型调用：把 DeepSeek 等 OpenAI 兼容模型接成宿主指令",
+  "artifact": "HistoryApollo.dll",
+  "docs": "HistoryApollo.xml",
+  "mcpExposure": "standard",
+  "ui": false,
+  "pinned": false
+}

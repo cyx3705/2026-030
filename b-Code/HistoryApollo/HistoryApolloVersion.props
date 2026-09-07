@@ -1,0 +1,16 @@
+<Project>
+  <PropertyGroup>
+    <!-- 版本的唯一真源。module.manifest.json 与根 project.manifest.json 必须同值，
+         打包脚本会逐一比对，不一致直接失败——宿主对版本不一致的处理是静默跳过整个模块。 -->
+    <HistoryApolloVersion>0.1.0</HistoryApolloVersion>
+    <!-- Apollo 消费的 HistoryVulcan 正式宿主版本。5.1.2 起模块接入面冻结为
+         注册器 + 命令总线，本模块只用这两样。 -->
+    <MinimumHistoryVulcanVersion>5.1.2</MinimumHistoryVulcanVersion>
+    <VersionPrefix>$(HistoryApolloVersion)</VersionPrefix>
+    <Version>$(HistoryApolloVersion)</Version>
+    <AssemblyVersion>$(HistoryApolloVersion).0</AssemblyVersion>
+    <FileVersion>$(HistoryApolloVersion).0</FileVersion>
+    <InformationalVersion>$(HistoryApolloVersion)</InformationalVersion>
+    <IncludeSourceRevisionInInformationalVersion>false</IncludeSourceRevisionInInformationalVersion>
+  </PropertyGroup>
+</Project>

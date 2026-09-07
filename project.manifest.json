@@ -1,0 +1,83 @@
+{
+  "schemaVersion": 1,
+  "template": {
+    "isTemplate": false,
+    "source": "0000-001-AIReady",
+    "strictValidationArgument": "-Instantiation"
+  },
+  "project": {
+    "id": "2026-030",
+    "name": "HistoryApollo",
+    "title": "HistoryApollo 模型调用",
+    "kind": [
+      "software",
+      "integration",
+      "ai-module"
+    ],
+    "status": "active",
+    "version": "0.1.0",
+    "branch": "main"
+  },
+  "paths": {
+    "activeRoots": [
+      "b-Office/current",
+      "b-Office/package",
+      "b-Code/HistoryApollo",
+      "b-Code/HistoryApollo.Tests",
+      "b-Code"
+    ],
+    "sourceRoots": [
+      "b-Code/HistoryApollo",
+      "b-Code/HistoryApollo.Tests"
+    ],
+    "generatedRoots": [
+      "b-Code/**/bin",
+      "b-Code/**/obj",
+      "z-Publish"
+    ],
+    "archiveRoots": [
+      "b-Office/history",
+      "z-Publish/history"
+    ],
+    "releaseRoots": [
+      "z-Publish"
+    ],
+    "allowedRootDirectoryPrefixes": [
+      "a-",
+      "b-",
+      "z-"
+    ]
+  },
+  "documents": {
+    "center": "b-Office/文档中心.md",
+    "package": "b-Office/package/复用说明.md",
+    "structure": "b-Office/文档中心.md",
+    "overview": "b-Office/current/项目概览.md",
+    "technicalContract": "b-Office/current/技术合同.md",
+    "decisions": "b-Office/current/有效决策.md",
+    "verification": "b-Office/current/验证合同.md",
+    "historyBoundary": "b-Office/history/历史资料说明.md"
+  },
+  "commands": {
+    "setup": null,
+    "build": "dotnet build .\\b-Code\\HistoryApollo\\HistoryApollo.csproj -c Release -p:NuGetAudit=false",
+    "test": "dotnet run --project .\\b-Code\\HistoryApollo.Tests\\HistoryApollo.Tests.csproj -c Release -p:NuGetAudit=false",
+    "verify": "powershell -NoProfile -ExecutionPolicy Bypass -File .\\b-Code\\Test-ProjectContract.ps1 -Instantiation",
+    "run": null,
+    "package": "powershell -NoProfile -ExecutionPolicy Bypass -File .\\b-Code\\HistoryApollo\\eng\\Build-HistoryApolloPackage.ps1"
+  },
+  "externalDependencies": [
+    "HistoryVulcan 5.1.2 发布快照：C:\\OneHistory\\HistoryClio\\2026-023-HistoryVulcan\\z-Publish",
+    ".NET SDK 9（目标框架 net8.0）",
+    "DeepSeek 开放平台：https://api.deepseek.com"
+  ],
+  "contextExclusions": [
+    "b-Office/history/**",
+    "z-Publish/**",
+    "**/bin/**",
+    "**/obj/**",
+    "**/node_modules/**",
+    "**/.vs/**",
+    "artifacts/**"
+  ]
+}

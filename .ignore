@@ -1,0 +1,9 @@
+# Keep broad text searches focused on current, editable project truth.
+b-Office/history/
+b-Publish/
+artifacts/
+work/
+.vs/
+**/bin/
+**/obj/
+**/node_modules/
