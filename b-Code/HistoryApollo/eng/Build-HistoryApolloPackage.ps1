@@ -64,7 +64,7 @@ try {
     }
 
     # 模块消费文档随包走：装到运行区之后，读文档不必回头找源码仓。
-    $docsSource = Join-Path $repoRoot 'b-Office\package\HistoryApollo_模块API.md'
+    $docsSource = Join-Path $repoRoot 'b-Office\package\模块API.md'
     if (-not (Test-Path -LiteralPath $docsSource)) { throw "模块 API 文档缺失: $docsSource" }
     $docsStage = Join-Path $stage 'docs'
     New-Item -ItemType Directory -Path $docsStage -Force | Out-Null

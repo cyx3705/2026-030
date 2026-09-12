@@ -7,7 +7,7 @@
 1. 读取根目录 `project.manifest.json`，确认项目身份、状态、活动目录和可用命令。
 2. 读取根目录 `README.md` 和 `b-Office/current/项目概览.md`。
 3. 根据任务读取 `b-Office/current/技术合同.md`、`有效决策.md` 或 `验证合同.md`；涉及目录治理时
-   读取 `b-Office/文档中心.md` 的“目录规范”，涉及跨项目复用时再读取 `b-Office/package/复用说明.md`。
+   读取 `b-Office/文档中心.md` 的“目录规范”，涉及跨项目复用时再读取 `b-Office/package/模块API.md`。
 4. 只进入 manifest 声明的活动目录。发现未登记目录时，先确认其级别、所有者和用途。
 
 ## 真值与冲突处理

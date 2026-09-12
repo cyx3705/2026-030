@@ -16,7 +16,7 @@ apollo.chat.ask prompt=用一句话解释张量
 apollo.provider.list
 ```
 
-指令、参数、返回载荷与密钥约定见 [`b-Office/package/HistoryApollo_模块API.md`](./b-Office/package/HistoryApollo_模块API.md)。
+指令、参数、返回载荷与密钥约定见 [`b-Office/package/模块API.md`](./b-Office/package/模块API.md)。
 
 ## 入口
 
@@ -24,7 +24,7 @@ apollo.provider.list
 | --- | --- |
 | [`AGENTS.md`](./AGENTS.md) | AI 读取顺序、真值规则、工作边界与完成要求 |
 | [`project.manifest.json`](./project.manifest.json) | 项目身份、活动目录、命令与上下文排除项 |
-| [`b-Office/package/HistoryApollo_模块API.md`](./b-Office/package/HistoryApollo_模块API.md) | 模块消费合同（随发布包同行） |
+| [`b-Office/package/模块API.md`](./b-Office/package/模块API.md) | 模块消费合同（随发布包同行） |
 | [`b-Office/current/项目概览.md`](./b-Office/current/项目概览.md) | 目标、范围、状态和交付物 |
 | [`b-Office/current/技术合同.md`](./b-Office/current/技术合同.md) | 现行需求和系统架构 |
 | [`b-Office/current/有效决策.md`](./b-Office/current/有效决策.md) | 当前仍然有效的关键决策 |

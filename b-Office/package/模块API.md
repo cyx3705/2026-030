@@ -2,7 +2,9 @@
 
 模块版本：**0.1.0**；宿主基线：**HistoryVulcan 5.1.2**。
 
-本文件是模块消费方的权威合同，随发布候选进包（`docs/模块API.md`）。
+本文件是**总线面**合同：模块消费方的权威合同，随发布候选进包（`docs/模块API.md`）。
+模块内部类型与内置供应商表的维护方式在 `b-Office/current/技术合同.md`；
+AI 面（MCP 工具）由 MCP 服务封装，本文件不重复。
 
 ## 这个模块提供什么
 
@@ -132,5 +134,3 @@ apollo.key.set token=<密钥> provider=deepseek
 apollo.provider.config provider=<名字> baseurl=https://… model=<默认模型>
 apollo.key.set token=<密钥> provider=<名字>
 ```
-
-需要内置（不配也能用）时，在 `ProviderStore.Builtin` 加一行。
