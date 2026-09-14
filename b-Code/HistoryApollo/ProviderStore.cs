@@ -9,15 +9,27 @@ namespace HistoryApollo;
 /// <param name="Model">未显式指定 <c>model=</c> 时使用的模型。</param>
 /// <param name="ApiKey">密钥；未配置时为 null。</param>
 /// <param name="KeySource">密钥来自哪里：<c>env:变量名</c> 或 <c>store</c>；未配置时为 <c>none</c>。</param>
+/// <param name="Kind">对话供应商还是搜索服务。</param>
 internal sealed record ProviderProfile(
     string Name,
     string BaseUrl,
     string Model,
     string? ApiKey,
-    string KeySource)
+    string KeySource,
+    ProviderKind Kind = ProviderKind.Chat)
 {
     /// <summary>是否已经拿得到密钥。</summary>
     public bool HasKey => !string.IsNullOrWhiteSpace(ApiKey);
+}
+
+/// <summary>一条供应商档案服务于哪一侧。</summary>
+internal enum ProviderKind
+{
+    /// <summary>OpenAI 兼容的 chat/completions。</summary>
+    Chat,
+
+    /// <summary>联网搜索服务：只在 <c>web=true</c> 的对话里由模块代模型调用，不能拿来对话。</summary>
+    Search,
 }
 
 /// <summary>配置或输入不满足调用前提；这类错误直接变成失败回执，不是异常堆栈。</summary>
@@ -38,14 +50,21 @@ internal sealed class ProviderStore(string path)
     private readonly object _gate = new();
     private Snapshot? _cache;
 
-    /// <summary>内置供应商。新增一家只需要在这里加一行——协议都是 OpenAI 兼容的 chat/completions。</summary>
+    /// <summary>
+    /// 内置供应商。新增一家对话供应商只需要在这里加一行——协议都是 OpenAI 兼容的 chat/completions。
+    /// 搜索服务也登记在这里：它的接入点与密钥和对话供应商共用同一套配置、环境变量与脱敏规则。
+    /// </summary>
     private static readonly IReadOnlyDictionary<string, ProviderDefaults> Builtin =
         new Dictionary<string, ProviderDefaults>(StringComparer.OrdinalIgnoreCase)
         {
             ["deepseek"] = new("https://api.deepseek.com", "deepseek-chat"),
+            [SearchProvider] = new("https://api.bochaai.com", string.Empty, ProviderKind.Search),
         };
 
     private const string BuiltinDefaultProvider = "deepseek";
+
+    /// <summary><c>web=true</c> 时代模型执行搜索的服务名。</summary>
+    public const string SearchProvider = "bocha";
 
     /// <summary>库文件路径；测试与诊断用。</summary>
     public string Path { get; } = path;
@@ -93,6 +112,20 @@ internal sealed class ProviderStore(string path)
 
             return Resolve(snapshot, resolved);
         }
+    }
+
+    /// <summary>解析一个<b>对话</b>供应商；名字指向搜索服务时拒绝。</summary>
+    /// <exception cref="ApolloInputException">名称未知，或它是搜索服务。</exception>
+    public ProviderProfile ResolveChat(string? name)
+    {
+        var profile = Resolve(name);
+        if (profile.Kind == ProviderKind.Search)
+        {
+            throw new ApolloInputException(
+                $"{profile.Name} 是搜索服务，不能用来对话；要让模型联网，在 apollo.chat.ask 上加 web=true");
+        }
+
+        return profile;
     }
 
     /// <summary>写入密钥。空值按清除处理由调用方拦下，这里只拒绝。</summary>
@@ -173,7 +206,7 @@ internal sealed class ProviderStore(string path)
     /// <summary>切换默认供应商。</summary>
     public ProviderProfile SetDefaultProvider(string name)
     {
-        var profile = Resolve(name);
+        var profile = ResolveChat(name);
         lock (_gate)
         {
             var snapshot = Load();
@@ -226,7 +259,8 @@ internal sealed class ProviderStore(string path)
             (stored.BaseUrl ?? defaults.BaseUrl).TrimEnd('/'),
             stored.Model ?? defaults.Model,
             key,
-            source);
+            source,
+            defaults.Kind);
     }
 
     /// <summary>
@@ -302,7 +336,7 @@ internal sealed class ProviderStore(string path)
         _cache = snapshot;
     }
 
-    private sealed record ProviderDefaults(string BaseUrl, string Model);
+    private sealed record ProviderDefaults(string BaseUrl, string Model, ProviderKind Kind = ProviderKind.Chat);
 
     private sealed record Snapshot(string Default, IReadOnlyDictionary<string, StoredProvider> Entries)
     {

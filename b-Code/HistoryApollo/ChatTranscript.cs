@@ -82,8 +82,10 @@ internal static class ChatTranscript
         if (jsonOutput)
             return outcome.Content;
 
+        // 真的搜过才报搜索次数：web=true 但模型没搜，与没开 web 在账单上是一回事。
+        var searched = outcome.SearchCount > 0 ? $"联网搜索 {outcome.SearchCount} 次 · " : string.Empty;
         var footer =
-            $"— {outcome.Provider}/{outcome.Model} · "
+            $"— {outcome.Provider}/{outcome.Model} · {searched}"
             + $"用量 {outcome.PromptTokens}+{outcome.CompletionTokens}={outcome.TotalTokens} tokens · "
             + $"{outcome.ElapsedMilliseconds / 1000.0:0.0}s";
         return string.IsNullOrEmpty(outcome.Content)
@@ -91,7 +93,7 @@ internal static class ChatTranscript
             : $"{outcome.Content}{Environment.NewLine}{Environment.NewLine}{footer}";
     }
 
-    /// <summary>结构化载荷：正文、思考过程、用量和结束原因。</summary>
+    /// <summary>结构化载荷：正文、思考过程、用量、结束原因，以及模型发起的每一次搜索。</summary>
     public static string ToJson(ChatOutcome outcome)
         => JsonSerializer.Serialize(
             new
@@ -108,6 +110,12 @@ internal static class ChatTranscript
                     total = outcome.TotalTokens,
                 },
                 elapsedMs = outcome.ElapsedMilliseconds,
+                searches = (outcome.Searches ?? []).Select(trace => new
+                {
+                    query = trace.Query,
+                    results = trace.ResultCount,
+                    error = trace.Error,
+                }),
             },
             new JsonSerializerOptions { WriteIndented = true });
 }

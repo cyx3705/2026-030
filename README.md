@@ -1,7 +1,7 @@
 # HistoryApollo 模型调用
 
 HistoryApollo 是注册到 [HistoryVulcan](../2026-023-HistoryVulcan) 的模型调用模块：
-把 OpenAI 兼容的对话补全接口变成宿主指令，首发内置 DeepSeek。
+把 OpenAI 兼容的对话补全接口变成宿主指令，首发内置 DeepSeek，可按需联网搜索（博查）。
 
 ![OneHistory Logo](./Logo.png)
 
@@ -13,6 +13,8 @@ HistoryApollo 是注册到 [HistoryVulcan](../2026-023-HistoryVulcan) 的模型�
 ```
 apollo.key.set token=<密钥> provider=deepseek
 apollo.chat.ask prompt=用一句话解释张量
+apollo.key.set token=<博查密钥> provider=bocha
+apollo.chat.ask prompt="CDQ2B20-10D 是哪个品牌的气缸" web=true
 apollo.provider.list
 ```
 
@@ -46,7 +48,7 @@ powershell -NoProfile -ExecutionPolicy Bypass -File .\b-Code\HistoryApollo\eng\B
 ## 密钥
 
 密钥只落在本机 `%AppData%\HistoryVulcan\Modules\HistoryApollo\data\providers.json`，
-或由环境变量 `APOLLO_DEEPSEEK_KEY` / `DEEPSEEK_API_KEY` 提供（环境变量优先）。
+或由环境变量 `APOLLO_DEEPSEEK_KEY` / `DEEPSEEK_API_KEY` 提供（环境变量优先）；博查是 `APOLLO_BOCHA_KEY` / `BOCHA_API_KEY`。
 
 **密钥不入库。** 项目合同检查会扫描全仓并拒绝任何形如 `sk-<长串>` 的真实密钥。
 

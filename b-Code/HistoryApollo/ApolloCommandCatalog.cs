@@ -10,7 +10,7 @@ internal static class ApolloCommandCatalog
     private const string Domain = "apollo";
     internal const string Source = "module:HistoryApollo";
 
-    public static void Register(CommandRegistry registry, ProviderStore store, ChatClient client)
+    public static void Register(CommandRegistry registry, ProviderStore store, ChatClient client, IWebSearch search)
     {
         registry.Register(
             new CommandDescriptor
@@ -18,8 +18,8 @@ internal static class ApolloCommandCatalog
                 Name = "apollo.chat.ask",
                 Domain = Domain,
                 CommandClass = "chat",
-                Summary = "向模型提一个问题并取回答复。",
-                Example = "apollo.chat.ask prompt=用一句话解释张量 model=deepseek-chat",
+                Summary = "向模型提一个问题并取回答复；web=true 时模型可按需联网搜索。",
+                Example = "apollo.chat.ask prompt=CDQ2B20-10D是哪个品牌的气缸 web=true",
                 Level = CommandLevel.Run,
                 // 不写本机状态，但会发出一次计费的外网请求，所以不声明 Readonly。
                 Readonly = false,
@@ -39,7 +39,7 @@ internal static class ApolloCommandCatalog
                     var messages = ChatTranscript.FromPrompt(
                         context.GetString("system"),
                         context.GetString("prompt"));
-                    return await CompleteAsync(store, client, context, messages).ConfigureAwait(false);
+                    return await CompleteAsync(store, client, search, context, messages).ConfigureAwait(false);
                 }),
             },
             Source);
@@ -50,7 +50,7 @@ internal static class ApolloCommandCatalog
                 Name = "apollo.chat.send",
                 Domain = Domain,
                 CommandClass = "chat",
-                Summary = "按完整消息数组发起一次多轮对话调用。",
+                Summary = "按完整消息数组发起一次多轮对话调用；web=true 时模型可按需联网搜索。",
                 Example = "apollo.chat.send messages=[{\"role\":\"user\",\"content\":\"继续\"}]",
                 Level = CommandLevel.Run,
                 Readonly = false,
@@ -68,7 +68,7 @@ internal static class ApolloCommandCatalog
                 Handler = Guard(async context =>
                 {
                     var messages = ChatTranscript.Parse(context.GetString("messages"));
-                    return await CompleteAsync(store, client, context, messages).ConfigureAwait(false);
+                    return await CompleteAsync(store, client, search, context, messages).ConfigureAwait(false);
                 }),
             },
             Source);
@@ -90,7 +90,7 @@ internal static class ApolloCommandCatalog
                 ],
                 Handler = Guard(async context =>
                 {
-                    var profile = store.Resolve(context.GetString("provider"));
+                    var profile = store.ResolveChat(context.GetString("provider"));
                     var models = await client.ListModelsAsync(
                         profile,
                         context.GetInt("timeout", 30),
@@ -123,7 +123,7 @@ internal static class ApolloCommandCatalog
                     {
                         lines.AppendLine(
                             $"{(profile.Name.Equals(current, StringComparison.OrdinalIgnoreCase) ? "*" : " ")} "
-                            + $"{profile.Name}  模型={profile.Model}  接入点={profile.BaseUrl}  "
+                            + $"{profile.Name}  {(profile.Kind == ProviderKind.Search ? "类型=搜索" : "模型=" + profile.Model)}  接入点={profile.BaseUrl}  "
                             + $"密钥={ProviderStore.Mask(profile.ApiKey)}({profile.KeySource})");
                     }
 
@@ -281,10 +281,11 @@ internal static class ApolloCommandCatalog
     private static async Task<CommandResult> CompleteAsync(
         ProviderStore store,
         ChatClient client,
+        IWebSearch search,
         CommandContext context,
         IReadOnlyList<ChatMessage> messages)
     {
-        var profile = store.Resolve(context.GetString("provider"));
+        var profile = store.ResolveChat(context.GetString("provider"));
         var jsonOutput = context.GetBool("json", false);
         var options = new ChatOptions
         {
@@ -293,14 +294,19 @@ internal static class ApolloCommandCatalog
             MaxTokens = context.Has("maxtokens") ? context.GetInt("maxtokens", 0) : null,
             JsonOutput = jsonOutput,
             TimeoutSeconds = context.GetInt("timeout", 120),
+            WebSearch = context.GetBool("web", false),
         };
 
-        var outcome = await client.CompleteAsync(profile, messages, options, context.Cancellation)
+        var outcome = await client.CompleteAsync(profile, messages, options, context.Cancellation, search)
             .ConfigureAwait(false);
 
+        // 搜过什么进本地日志：模型凭哪几次搜索下的结论，事后要查得到。
+        var searched = outcome.SearchCount == 0
+            ? string.Empty
+            : $" 搜索 {outcome.SearchCount} 次：{string.Join(" | ", outcome.Searches!.Select(trace => trace.Query))}";
         ApolloRuntime.Log(
             "chat",
-            $"{outcome.Provider}/{outcome.Model} {outcome.TotalTokens} tokens {outcome.ElapsedMilliseconds}ms");
+            $"{outcome.Provider}/{outcome.Model} {outcome.TotalTokens} tokens {outcome.ElapsedMilliseconds}ms{searched}");
 
         return CommandResult.Ok(
             ChatTranscript.Describe(outcome, jsonOutput),
@@ -340,6 +346,13 @@ internal static class ApolloCommandCatalog
             Type = ParamType.Bool,
             Default = "false",
         },
+        new ParameterSpec
+        {
+            Name = "web",
+            Description = $"允许模型按需联网搜索（博查）：搜不搜、搜什么由模型决定，每次调用最多 {ChatClient.MaxSearches} 次，搜索另行计费。",
+            Type = ParamType.Bool,
+            Default = "false",
+        },
         TimeoutParameter(),
     ];
 
@@ -366,6 +379,7 @@ internal static class ApolloCommandCatalog
                 providers = store.All().Select(profile => new
                 {
                     name = profile.Name,
+                    kind = profile.Kind == ProviderKind.Search ? "search" : "chat",
                     model = profile.Model,
                     baseUrl = profile.BaseUrl,
                     key = ProviderStore.Mask(profile.ApiKey),

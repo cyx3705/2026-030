@@ -19,12 +19,20 @@ var tests = new (string Name, Func<Task> Run)[]
     ("result footer", TestResultFooterAsync),
     ("command registration", TestCommandRegistrationAsync),
     ("secret parameter contract", TestSecretParameterContractAsync),
+    ("search provider kind", TestSearchProviderKindAsync),
+    ("web search request", TestWebSearchRequestAsync),
+    ("web search tool loop", TestWebSearchToolLoopAsync),
+    ("web search budget", TestWebSearchBudgetAsync),
 };
 
 // 联网实调默认不跑：它要花钱、要外网，且依赖本机已配置的真实密钥。
 // 交付验收时显式打开 APOLLO_LIVE=1，让「能不能真的调通」这件事也有可重复的证据。
 if (string.Equals(Environment.GetEnvironmentVariable("APOLLO_LIVE"), "1", StringComparison.Ordinal))
     tests = [.. tests, ("live deepseek call", TestLiveCallAsync)];
+
+// 联网搜索实调另开一个开关：它还要博查密钥，不该让只配了 DeepSeek 的机器 VERIFY-LIVE 变红。
+if (string.Equals(Environment.GetEnvironmentVariable("APOLLO_LIVE_WEB"), "1", StringComparison.Ordinal))
+    tests = [.. tests, ("live web search call", TestLiveWebCallAsync)];
 
 var failed = 0;
 foreach (var test in tests)
@@ -92,9 +100,9 @@ static Task TestDefineProviderAsync()
     Equal("kimi", defined.Model);
     True(scope.Store.Knows("moonshot"), "登记后应认识 moonshot");
 
-    // 内置的那家仍在，登记新供应商不会顶掉它。
+    // 内置的两家（deepseek 与搜索服务 bocha）仍在，登记新供应商不会顶掉它们。
     Equal("https://api.deepseek.com", scope.Store.Resolve("deepseek").BaseUrl);
-    Equal(2, scope.Store.All().Count);
+    Equal(3, scope.Store.All().Count);
 
     Throws<ApolloInputException>(() => scope.Store.Define("bad name", "https://x.test", null));
     Throws<ApolloInputException>(() => scope.Store.Define("ok", "not-a-url", null));
@@ -300,7 +308,7 @@ static Task TestCommandRegistrationAsync()
     var registry = new CommandRegistry();
 
     // 注册表在这里会同时校验 Ask 与 ConfirmPrompt 是否配套、命令类是否合法。
-    ApolloCommandCatalog.Register(registry, scope.Store, client);
+    ApolloCommandCatalog.Register(registry, scope.Store, client, new FakeSearch(_ => []));
 
     string[] expected =
     [
@@ -333,6 +341,14 @@ static Task TestCommandRegistrationAsync()
 
     True(registry.TryGet("apollo.chat.ask", out var ask), "缺少 apollo.chat.ask");
     True(!ask!.Readonly, "对话会发出计费请求，不应声明为只读");
+
+    foreach (var name in new[] { "apollo.chat.ask", "apollo.chat.send" })
+    {
+        True(registry.TryGet(name, out var chat), $"缺少 {name}");
+        var web = chat!.Parameters.SingleOrDefault(parameter => parameter.Name == "web");
+        True(web is { Default: "false" }, $"{name} 必须提供默认关闭的 web 参数：联网另行计费，不能悄悄打开");
+    }
+
     return Task.CompletedTask;
 }
 
@@ -341,7 +357,7 @@ static Task TestSecretParameterContractAsync()
     using var scope = new StoreScope();
     using var client = FakeTransport.Client((_, _) => (HttpStatusCode.OK, "{}"));
     var registry = new CommandRegistry();
-    ApolloCommandCatalog.Register(registry, scope.Store, client);
+    ApolloCommandCatalog.Register(registry, scope.Store, client, new FakeSearch(_ => []));
 
     // 总线按参数名判定敏感值：名字必须以 token 结尾，位置 0 才会被位置传参的遮蔽覆盖。
     // 改名成 apikey / key 会让回显、命令历史和结果脱敏整体失效，所以在这里钉住。
@@ -371,6 +387,197 @@ static async Task TestLiveCallAsync()
                       + $"（{outcome.TotalTokens} tokens，{outcome.ElapsedMilliseconds}ms）");
 }
 
+static Task TestSearchProviderKindAsync()
+{
+    using var scope = new StoreScope();
+    var bocha = scope.Store.Resolve(ProviderStore.SearchProvider);
+    Equal(ProviderKind.Search, bocha.Kind);
+    Equal("https://api.bochaai.com", bocha.BaseUrl);
+    Equal(ProviderKind.Chat, scope.Store.Resolve(null).Kind);
+
+    // 搜索服务的钥匙与对话供应商同库、同一条指令写入，但它不能被当成对话供应商来用。
+    scope.Store.SetKey("bocha", "bocha-fake-key-0000");
+    True(new ProviderStore(scope.Store.Path).Resolve("bocha").HasKey, "博查密钥应落盘");
+    var misuse = Throws<ApolloInputException>(() => scope.Store.ResolveChat("bocha"));
+    True(misuse.Message.Contains("web=true", StringComparison.Ordinal), "拒绝时应指出联网的正确用法");
+    Throws<ApolloInputException>(() => scope.Store.SetDefaultProvider("bocha"));
+    Equal("deepseek", scope.Store.DefaultProvider);
+    return Task.CompletedTask;
+}
+
+static async Task TestWebSearchRequestAsync()
+{
+    using var scope = new StoreScope();
+    string? captured = null;
+    using var search = new WebSearchClient(scope.Store, FakeTransport.Http((request, body) =>
+    {
+        captured = body;
+        Equal("https://api.bochaai.com/v1/web-search", request.RequestUri!.ToString());
+        Equal(HttpMethod.Post, request.Method);
+        Equal("Bearer", request.Headers.Authorization!.Scheme);
+        return (HttpStatusCode.OK, """
+            {"code":200,"msg":null,"data":{"webPages":{"value":[
+              {"name":"SMC 薄型气缸 CDQ2B20-10D","url":"https://example.test/a","siteName":"SMC","datePublished":"2025-01-02T00:00:00+08:00","snippet":"短摘要","summary":"长摘要"},
+              {"name":"只有片段","url":"https://example.test/b","snippet":"只有 snippet"},
+              {"name":"没有链接的条目"}
+            ]}}}
+            """);
+    }));
+
+    // 机器上若已用环境变量配了博查密钥，「没配密钥」这一段无从验证，跳过它而不是误报。
+    if (Environment.GetEnvironmentVariable("APOLLO_BOCHA_KEY") is null
+        && Environment.GetEnvironmentVariable("BOCHA_API_KEY") is null)
+    {
+        var missing = await ThrowsAsync<ApolloInputException>(
+            () => search.SearchAsync("CDQ2B20-10D", 5, 30, CancellationToken.None));
+        True(missing.Message.Contains("apollo.key.set provider=bocha", StringComparison.Ordinal), "应指出配置博查密钥的办法");
+        True(captured is null, "没有密钥时不得发出请求");
+    }
+
+    scope.Store.SetKey("bocha", "bocha-fake-key-0000");
+    var hits = await search.SearchAsync("CDQ2B20-10D", 5, 30, CancellationToken.None);
+    Equal(2, hits.Count);
+    Equal("长摘要", hits[0].Summary);
+    Equal("SMC", hits[0].SiteName!);
+    Equal("只有 snippet", hits[1].Summary);
+
+    using var sent = JsonDocument.Parse(captured!);
+    Equal("CDQ2B20-10D", sent.RootElement.GetProperty("query").GetString()!);
+    Equal(true, sent.RootElement.GetProperty("summary").GetBoolean());
+    Equal(5, sent.RootElement.GetProperty("count").GetInt32());
+
+    // 业务错误装在 HTTP 200 里：必须变成失败，不能当成「没有结果」让模型一本正经地答「查不到」。
+    var rejected = Throws<ApolloRemoteException>(
+        () => WebSearchClient.ReadHits("bocha", """{"code":403,"msg":"余额不足","data":null}"""));
+    True(rejected.Message.Contains("余额不足", StringComparison.Ordinal), "业务错误应带出服务端原因");
+    Equal(0, WebSearchClient.ReadHits("bocha", """{"code":"200","data":{}}""").Count);
+}
+
+static async Task TestWebSearchToolLoopAsync()
+{
+    var bodies = new List<string>();
+    using var client = FakeTransport.Client((_, body) =>
+    {
+        bodies.Add(body!);
+        return bodies.Count == 1
+            ? (HttpStatusCode.OK, """
+                {"model":"deepseek-flash","choices":[{"finish_reason":"tool_calls","message":{
+                  "role":"assistant","content":"","reasoning_content":"先搜型号",
+                  "tool_calls":[{"id":"call_1","type":"function","function":{"name":"web_search","arguments":"{\"query\":\"CDQ2B20-10D 品牌\"}"}}]}}],
+                 "usage":{"prompt_tokens":100,"completion_tokens":10,"total_tokens":110}}
+                """)
+            : (HttpStatusCode.OK, """
+                {"model":"deepseek-flash","choices":[{"finish_reason":"stop","message":{"role":"assistant","content":"{\"brand\":\"SMC\"}"}}],
+                 "usage":{"prompt_tokens":300,"completion_tokens":5,"total_tokens":305}}
+                """);
+    });
+
+    var search = new FakeSearch(_ =>
+        [new WebSearchHit("SMC 薄型气缸", "https://example.test/smc", "SMC", null, "CDQ2B20-10D 是 SMC 的薄型气缸")]);
+    var profile = new ProviderProfile("deepseek", "https://api.deepseek.com", "deepseek-chat", "sk-test", "store");
+    var outcome = await client.CompleteAsync(
+        profile,
+        [new ChatMessage("user", "CDQ2B20-10D 是什么品牌")],
+        new ChatOptions { WebSearch = true, JsonOutput = true },
+        CancellationToken.None,
+        search);
+
+    Equal("{\"brand\":\"SMC\"}", outcome.Content);
+    Equal(1, outcome.SearchCount);
+    Equal("CDQ2B20-10D 品牌", outcome.Searches![0].Query);
+    Equal(415, outcome.TotalTokens);
+    Equal(1, search.Queries.Count);
+    Equal(2, bodies.Count);
+
+    using var first = JsonDocument.Parse(bodies[0]);
+    Equal(
+        "web_search",
+        first.RootElement.GetProperty("tools")[0].GetProperty("function").GetProperty("name").GetString()!);
+
+    // 第二轮：助手消息原样回放（含 reasoning_content），tool 结果按 tool_call_id 对上。
+    using var second = JsonDocument.Parse(bodies[1]);
+    var replay = second.RootElement.GetProperty("messages");
+    Equal(3, replay.GetArrayLength());
+    Equal("assistant", replay[1].GetProperty("role").GetString()!);
+    Equal("先搜型号", replay[1].GetProperty("reasoning_content").GetString()!);
+    Equal("call_1", replay[1].GetProperty("tool_calls")[0].GetProperty("id").GetString()!);
+    Equal("tool", replay[2].GetProperty("role").GetString()!);
+    Equal("call_1", replay[2].GetProperty("tool_call_id").GetString()!);
+    True(
+        replay[2].GetProperty("content").GetString()!.Contains("CDQ2B20-10D 是 SMC 的薄型气缸", StringComparison.Ordinal),
+        "搜索结果必须作为 tool 消息交回模型");
+
+    using var payload = JsonDocument.Parse(ChatTranscript.ToJson(outcome));
+    Equal("CDQ2B20-10D 品牌", payload.RootElement.GetProperty("searches")[0].GetProperty("query").GetString()!);
+    True(ChatTranscript.Describe(outcome, jsonOutput: false).Contains("联网搜索 1 次", StringComparison.Ordinal), "脚注应报告搜索次数");
+
+    // 不开 web：请求里不得带工具；要求联网却没接搜索服务，是输入错误。
+    var plainBodies = new List<string>();
+    using var plain = FakeTransport.Client((_, body) =>
+    {
+        plainBodies.Add(body!);
+        return (HttpStatusCode.OK, """{"choices":[{"finish_reason":"stop","message":{"content":"好"}}]}""");
+    });
+    var quiet = await plain.CompleteAsync(profile, [new ChatMessage("user", "hi")], new ChatOptions(), CancellationToken.None);
+    Equal(0, quiet.SearchCount);
+    using var plainBody = JsonDocument.Parse(plainBodies[0]);
+    True(!plainBody.RootElement.TryGetProperty("tools", out _), "不开 web 时请求里不得带工具");
+    await ThrowsAsync<ApolloInputException>(() => plain.CompleteAsync(
+        profile,
+        [new ChatMessage("user", "hi")],
+        new ChatOptions { WebSearch = true },
+        CancellationToken.None));
+}
+
+static async Task TestWebSearchBudgetAsync()
+{
+    var rounds = 0;
+    using var client = FakeTransport.Client((_, _) =>
+    {
+        rounds++;
+        return (HttpStatusCode.OK, $$$"""
+            {"choices":[{"finish_reason":"tool_calls","message":{"role":"assistant","content":"",
+              "tool_calls":[{"id":"call_{{{rounds}}}","type":"function","function":{"name":"web_search","arguments":"{\"query\":\"第 {{{rounds}}} 次\"}"}}]}}]}
+            """);
+    });
+
+    var search = new FakeSearch(_ => []);
+    var profile = new ProviderProfile("deepseek", "https://api.deepseek.com", "deepseek-chat", "sk-test", "store");
+    var failure = await ThrowsAsync<ApolloRemoteException>(() => client.CompleteAsync(
+        profile,
+        [new ChatMessage("user", "一直搜")],
+        new ChatOptions { WebSearch = true },
+        CancellationToken.None,
+        search));
+
+    Equal(ChatClient.MaxSearches, search.Queries.Count);
+    True(rounds > ChatClient.MaxSearches, "额度用完后应先告诉模型直接作答，再判卡住");
+    True(failure.Message.Contains("始终没有作答", StringComparison.Ordinal), "卡住时失败回执应说明原因");
+}
+
+/// <summary>用本机真实配置做一次联网实调；只在 APOLLO_LIVE_WEB=1 时运行。</summary>
+static async Task TestLiveWebCallAsync()
+{
+    var store = ApolloRuntime.Providers;
+    var profile = store.ResolveChat(null);
+    True(profile.HasKey, $"{profile.Name} 未配置密钥，无法做联网实调");
+    True(store.Resolve(ProviderStore.SearchProvider).HasKey, "bocha 未配置密钥：先 apollo.key.set provider=bocha token=<密钥>");
+
+    using var client = new ChatClient();
+    using var search = new WebSearchClient(store);
+    var outcome = await client.CompleteAsync(
+        profile,
+        ChatTranscript.FromPrompt("回答前必须先用 web_search 联网确认。只回答品牌名。", "气缸型号 CDQ2B20-10D 是哪个品牌的产品？"),
+        new ChatOptions { WebSearch = true, MaxTokens = 200, TimeoutSeconds = 90 },
+        CancellationToken.None,
+        search);
+
+    True(outcome.SearchCount > 0, "联网实调应至少发起一次搜索");
+    True(!string.IsNullOrWhiteSpace(outcome.Content), "联网实调应返回非空正文");
+    Console.WriteLine($"     实调 {outcome.Provider}/{outcome.Model} 搜索 {outcome.SearchCount} 次 → {outcome.Content.Trim()}"
+                      + $"（{outcome.TotalTokens} tokens，{outcome.ElapsedMilliseconds}ms）");
+}
+
 // ------------------------------------------------------------------ 测试脚手架
 
 static void Equal<T>(T expected, T actual)
@@ -385,16 +592,16 @@ static void True(bool condition, string message)
         throw new InvalidOperationException(message);
 }
 
-static void Throws<T>(Action action)
+static T Throws<T>(Action action)
     where T : Exception
 {
     try
     {
         action();
     }
-    catch (T)
+    catch (T expected)
     {
-        return;
+        return expected;
     }
 
     throw new InvalidOperationException($"期望抛出 {typeof(T).Name}，实际没有抛出");
@@ -443,7 +650,10 @@ file sealed class FakeTransport(Func<HttpRequestMessage, string?, (HttpStatusCod
     : HttpMessageHandler
 {
     public static ChatClient Client(Func<HttpRequestMessage, string?, (HttpStatusCode, string)> respond)
-        => new(new HttpClient(new FakeTransport(respond)));
+        => new(Http(respond));
+
+    public static HttpClient Http(Func<HttpRequestMessage, string?, (HttpStatusCode, string)> respond)
+        => new(new FakeTransport(respond));
 
     protected override async Task<HttpResponseMessage> SendAsync(
         HttpRequestMessage request,
@@ -454,5 +664,21 @@ file sealed class FakeTransport(Func<HttpRequestMessage, string?, (HttpStatusCod
             : await request.Content.ReadAsStringAsync(cancellationToken);
         var (status, text) = respond(request, body);
         return new HttpResponseMessage(status) { Content = new StringContent(text) };
+    }
+}
+
+/// <summary>不出网的假搜索：记下模型搜了什么，给定结果。</summary>
+file sealed class FakeSearch(Func<string, IReadOnlyList<WebSearchHit>> respond) : IWebSearch
+{
+    public List<string> Queries { get; } = [];
+
+    public Task<IReadOnlyList<WebSearchHit>> SearchAsync(
+        string query,
+        int count,
+        int timeoutSeconds,
+        CancellationToken cancellation)
+    {
+        Queries.Add(query);
+        return Task.FromResult(respond(query));
     }
 }
