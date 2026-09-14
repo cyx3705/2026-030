@@ -82,15 +82,20 @@ internal static class ChatTranscript
         if (jsonOutput)
             return outcome.Content;
 
-        // 真的搜过才报搜索次数：web=true 但模型没搜，与没开 web 在账单上是一回事。
-        var searched = outcome.SearchCount > 0 ? $"联网搜索 {outcome.SearchCount} 次 · " : string.Empty;
-        var footer =
-            $"— {outcome.Provider}/{outcome.Model} · {searched}"
-            + $"用量 {outcome.PromptTokens}+{outcome.CompletionTokens}={outcome.TotalTokens} tokens · "
-            + $"{outcome.ElapsedMilliseconds / 1000.0:0.0}s";
+        var footer = "— " + Footer(outcome);
         return string.IsNullOrEmpty(outcome.Content)
             ? footer
             : $"{outcome.Content}{Environment.NewLine}{Environment.NewLine}{footer}";
+    }
+
+    /// <summary>用量脚注正文（不带前导破折号）；回执与控制台过程输出的「完成」行共用同一口径。</summary>
+    public static string Footer(ChatOutcome outcome)
+    {
+        // 真的搜过才报搜索次数：web=true 但模型没搜，与没开 web 在账单上是一回事。
+        var searched = outcome.SearchCount > 0 ? $"联网搜索 {outcome.SearchCount} 次 · " : string.Empty;
+        return $"{outcome.Provider}/{outcome.Model} · {searched}"
+               + $"用量 {outcome.PromptTokens}+{outcome.CompletionTokens}={outcome.TotalTokens} tokens · "
+               + $"{outcome.ElapsedMilliseconds / 1000.0:0.0}s";
     }
 
     /// <summary>结构化载荷：正文、思考过程、用量、结束原因，以及模型发起的每一次搜索。</summary>

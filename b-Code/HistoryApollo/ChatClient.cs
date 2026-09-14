@@ -80,6 +80,15 @@ internal sealed class ChatClient : IDisposable
 
     private const string SearchToolName = "web_search";
 
+    /// <summary>控制台上复述提问截到多少字；系统提示不复述。</summary>
+    private const int MaxQuestionTraceLength = 300;
+
+    /// <summary>控制台上每条搜索结果的标题截到多少字。</summary>
+    private const int MaxHitTitleTraceLength = 80;
+
+    /// <summary>进程内的调用编号；并发的几次调用在控制台上交错，按编号才对得上。</summary>
+    private static int _callSequence;
+
     private readonly HttpClient _http;
 
     public ChatClient()
@@ -105,12 +114,17 @@ internal sealed class ChatClient : IDisposable
     /// <param name="options">本次调用的可选项。</param>
     /// <param name="cancellation">取消令牌。</param>
     /// <param name="search">搜索服务；只有联网调用需要。</param>
+    /// <param name="trace">
+    /// 过程输出（DEC-008）。每一轮 HTTP 往返一回来就报一段：思考、要求搜什么、每次搜索拿回什么、答复与用量；
+    /// 失败时报原因。命令指令把它接到 <c>CommandContext.Progress</c>，也就是控制台；为 null 时不报。
+    /// </param>
     public async Task<ChatOutcome> CompleteAsync(
         ProviderProfile provider,
         IReadOnlyList<ChatMessage> messages,
         ChatOptions options,
         CancellationToken cancellation,
-        IWebSearch? search = null)
+        IWebSearch? search = null,
+        IProgress<string>? trace = null)
     {
         if (messages.Count == 0)
             throw new ApolloInputException("至少需要一条消息");
@@ -128,59 +142,77 @@ internal sealed class ChatClient : IDisposable
         foreach (var message in messages)
             conversation.Add(new JsonObject { ["role"] = message.Role, ["content"] = message.Content });
 
+        var tag = $"#{Interlocked.Increment(ref _callSequence)}";
+        trace?.Report(
+            $"{tag} {provider.Name}/{model}{(options.WebSearch ? " 联网" : string.Empty)} 提问："
+            + Clip(OneLine(messages[^1].Content), MaxQuestionTraceLength));
+
         var searches = new List<SearchTrace>();
         int promptTokens = 0, completionTokens = 0, totalTokens = 0;
         var stopwatch = Stopwatch.StartNew();
-        for (var round = 0; ; round++)
+        try
         {
-            var payload = await ApolloHttp.SendAsync(
-                _http,
-                provider.Name,
-                HttpMethod.Post,
-                provider.BaseUrl + "/chat/completions",
-                provider.ApiKey!,
-                BuildBody(model, conversation, options).ToJsonString(),
-                options.TimeoutSeconds,
-                cancellation).ConfigureAwait(false);
-
-            var reply = ReadReply(provider, model, payload);
-            promptTokens += reply.PromptTokens;
-            completionTokens += reply.CompletionTokens;
-            totalTokens += reply.TotalTokens;
-
-            if (!options.WebSearch || reply.ToolCalls.Count == 0)
+            for (var round = 0; ; round++)
             {
-                stopwatch.Stop();
-                return new ChatOutcome(
+                var payload = await ApolloHttp.SendAsync(
+                    _http,
                     provider.Name,
-                    reply.Model,
-                    reply.Content,
-                    reply.Reasoning,
-                    reply.FinishReason,
-                    promptTokens,
-                    completionTokens,
-                    totalTokens,
-                    stopwatch.ElapsedMilliseconds,
-                    options.WebSearch ? searches : null);
-            }
+                    HttpMethod.Post,
+                    provider.BaseUrl + "/chat/completions",
+                    provider.ApiKey!,
+                    BuildBody(model, conversation, options).ToJsonString(),
+                    options.TimeoutSeconds,
+                    cancellation).ConfigureAwait(false);
 
-            if (round >= MaxSearches + GraceRounds)
-                throw new ApolloRemoteException($"{provider.Name} 连续 {round + 1} 轮只要求搜索、始终没有作答");
+                var reply = ReadReply(provider, model, payload);
+                promptTokens += reply.PromptTokens;
+                completionTokens += reply.CompletionTokens;
+                totalTokens += reply.TotalTokens;
+                var label = options.WebSearch ? $"{tag} 第 {round + 1} 轮" : tag;
 
-            // 助手这一条原样回放，包括 reasoning_content 与 tool_calls。思考模式下带工具的后续请求
-            // 要求把 reasoning_content 完整传回；自己挑字段重建，漏一个就是 400 或模型丢了上一轮的思路。
-            conversation.Add(reply.Message.DeepClone());
-            foreach (var call in reply.ToolCalls)
-            {
-                var result = await RunToolAsync(call, search!, searches, options.TimeoutSeconds, cancellation)
-                    .ConfigureAwait(false);
-                conversation.Add(new JsonObject
+                if (!options.WebSearch || reply.ToolCalls.Count == 0)
                 {
-                    ["role"] = "tool",
-                    ["tool_call_id"] = call.Id,
-                    ["content"] = result,
-                });
+                    stopwatch.Stop();
+                    var outcome = new ChatOutcome(
+                        provider.Name,
+                        reply.Model,
+                        reply.Content,
+                        reply.Reasoning,
+                        reply.FinishReason,
+                        promptTokens,
+                        completionTokens,
+                        totalTokens,
+                        stopwatch.ElapsedMilliseconds,
+                        options.WebSearch ? searches : null);
+                    trace?.Report(DescribeAnswer(tag, label, reply, outcome));
+                    return outcome;
+                }
+
+                trace?.Report(DescribeToolRound(label, reply));
+
+                if (round >= MaxSearches + GraceRounds)
+                    throw new ApolloRemoteException($"{provider.Name} 连续 {round + 1} 轮只要求搜索、始终没有作答");
+
+                // 助手这一条原样回放，包括 reasoning_content 与 tool_calls。思考模式下带工具的后续请求
+                // 要求把 reasoning_content 完整传回；自己挑字段重建，漏一个就是 400 或模型丢了上一轮的思路。
+                conversation.Add(reply.Message.DeepClone());
+                foreach (var call in reply.ToolCalls)
+                {
+                    var result = await RunToolAsync(call, search!, searches, options.TimeoutSeconds, cancellation, tag, trace)
+                        .ConfigureAwait(false);
+                    conversation.Add(new JsonObject
+                    {
+                        ["role"] = "tool",
+                        ["tool_call_id"] = call.Id,
+                        ["content"] = result,
+                    });
+                }
             }
+        }
+        catch (Exception ex) when (ex is ApolloRemoteException or ApolloInputException)
+        {
+            trace?.Report($"{tag} 失败：{ex.Message}");
+            throw;
         }
     }
 
@@ -306,41 +338,123 @@ internal sealed class ChatClient : IDisposable
         IWebSearch search,
         List<SearchTrace> searches,
         int timeoutSeconds,
-        CancellationToken cancellation)
+        CancellationToken cancellation,
+        string tag,
+        IProgress<string>? trace)
     {
         if (!string.Equals(call.Name, SearchToolName, StringComparison.Ordinal))
+        {
+            trace?.Report($"{tag} 模型要求了不存在的工具 {call.Name}，已告知只有 {SearchToolName}");
             return $"没有名为 {call.Name} 的工具；可用的只有 {SearchToolName}。";
-
-        string? query;
-        try
-        {
-            query = JsonNode.Parse(call.Arguments) is JsonObject arguments ? StringOf(arguments["query"]) : null;
-        }
-        catch (JsonException)
-        {
-            query = null;
         }
 
-        if (string.IsNullOrWhiteSpace(query))
+        if (QueryOf(call) is not { } query)
+        {
+            trace?.Report($"{tag} 模型调用 {SearchToolName} 没给搜索词，已要求补上");
             return $"{SearchToolName} 需要参数 query（要搜索的关键词），这次没有给出。";
-        query = query.Trim();
+        }
 
         if (searches.Count >= MaxSearches)
+        {
+            trace?.Report($"{tag} 搜索「{query}」未执行：额度（{MaxSearches} 次）已用完，已要求模型直接作答");
             return $"本次调用的联网搜索额度（{MaxSearches} 次）已用完。请根据已经拿到的搜索结果直接作答。";
+        }
 
         try
         {
             var hits = await search.SearchAsync(query, ResultsPerSearch, timeoutSeconds, cancellation)
                 .ConfigureAwait(false);
             searches.Add(new SearchTrace(query, hits.Count, null));
+            trace?.Report(DescribeHits(tag, query, hits));
             return FormatHits(query, hits);
         }
         catch (ApolloRemoteException ex)
         {
             searches.Add(new SearchTrace(query, 0, ex.Message));
+            trace?.Report($"{tag} 搜索「{query}」失败：{ex.Message}");
             return $"搜索失败：{ex.Message}";
         }
     }
+
+    /// <summary>模型给出的搜索词；参数不是 JSON 或没给 query 时为 null。</summary>
+    private static string? QueryOf(ToolCall call)
+    {
+        try
+        {
+            return JsonNode.Parse(call.Arguments) is JsonObject arguments
+                   && StringOf(arguments["query"]) is { } query
+                   && !string.IsNullOrWhiteSpace(query)
+                ? query.Trim()
+                : null;
+        }
+        catch (JsonException)
+        {
+            return null;
+        }
+    }
+
+    /// <summary>要求搜索的那一轮：思考、随工具调用附带的说明、要搜的词。</summary>
+    private static string DescribeToolRound(string label, Reply reply)
+    {
+        var text = new StringBuilder();
+        AppendReasoning(text, label, reply.Reasoning);
+        if (!string.IsNullOrWhiteSpace(reply.Content))
+            text.AppendLine($"{label} 说明：{reply.Content.Trim()}");
+
+        var requests = reply.ToolCalls.Select(call =>
+            string.Equals(call.Name, SearchToolName, StringComparison.Ordinal) && QueryOf(call) is { } query
+                ? $"「{query}」"
+                : call.Name);
+        text.Append($"{label} 要求搜索：{string.Join(" ", requests)}");
+        return text.ToString();
+    }
+
+    /// <summary>
+    /// 作答的那一轮：思考、答复原文，再加一行与回执脚注同口径的用量。
+    /// 结束原因不是 stop（例如被 maxtokens 截断的 length）时追加在末尾——JSON 答复被截断，调用方只会看到「不是 JSON」。
+    /// </summary>
+    private static string DescribeAnswer(string tag, string label, Reply reply, ChatOutcome outcome)
+    {
+        var text = new StringBuilder();
+        AppendReasoning(text, label, reply.Reasoning);
+        text.AppendLine($"{label} 答复：{(string.IsNullOrWhiteSpace(outcome.Content) ? "（空）" : outcome.Content.Trim())}");
+        text.Append($"{tag} 完成：{ChatTranscript.Footer(outcome)}");
+        if (outcome.FinishReason is { Length: > 0 } finish && !string.Equals(finish, "stop", StringComparison.Ordinal))
+            text.Append($" · 结束原因 {finish}");
+        return text.ToString();
+    }
+
+    /// <summary>思考与答复都不截断：用户要看的就是模型怎么想的。</summary>
+    private static void AppendReasoning(StringBuilder text, string label, string? reasoning)
+    {
+        if (!string.IsNullOrWhiteSpace(reasoning))
+            text.AppendLine($"{label} 思考：{reasoning.Trim()}");
+    }
+
+    /// <summary>一次搜索拿回了什么：只列标题与来源站点，链接与摘要照旧只交给模型。</summary>
+    private static string DescribeHits(string tag, string query, IReadOnlyList<WebSearchHit> hits)
+    {
+        if (hits.Count == 0)
+            return $"{tag} 搜索「{query}」没有结果";
+
+        var text = new StringBuilder($"{tag} 搜索「{query}」{hits.Count} 条");
+        for (var index = 0; index < hits.Count; index++)
+        {
+            var hit = hits[index];
+            text.AppendLine();
+            text.Append($"    [{index + 1}] {Clip(OneLine(hit.Title), MaxHitTitleTraceLength)}");
+            if (!string.IsNullOrWhiteSpace(hit.SiteName))
+                text.Append($"（{hit.SiteName.Trim()}）");
+        }
+
+        return text.ToString();
+    }
+
+    private static string OneLine(string? text)
+        => string.Join(' ', (text ?? string.Empty).Split((char[]?)null, StringSplitOptions.RemoveEmptyEntries));
+
+    private static string Clip(string text, int maxLength)
+        => text.Length <= maxLength ? text : text[..maxLength] + "…";
 
     private static Reply ReadReply(ProviderProfile provider, string model, string payload)
     {

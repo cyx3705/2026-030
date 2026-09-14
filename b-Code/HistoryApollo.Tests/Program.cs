@@ -23,6 +23,7 @@ var tests = new (string Name, Func<Task> Run)[]
     ("web search request", TestWebSearchRequestAsync),
     ("web search tool loop", TestWebSearchToolLoopAsync),
     ("web search budget", TestWebSearchBudgetAsync),
+    ("chat trace", TestChatTraceAsync),
 };
 
 // 联网实调默认不跑：它要花钱、要外网，且依赖本机已配置的真实密钥。
@@ -555,6 +556,81 @@ static async Task TestWebSearchBudgetAsync()
     True(failure.Message.Contains("始终没有作答", StringComparison.Ordinal), "卡住时失败回执应说明原因");
 }
 
+static async Task TestChatTraceAsync()
+{
+    var rounds = 0;
+    using var client = FakeTransport.Client((_, _) => ++rounds == 1
+        ? (HttpStatusCode.OK, """
+            {"model":"deepseek-flash","choices":[{"finish_reason":"tool_calls","message":{
+              "role":"assistant","content":"","reasoning_content":"先搜型号",
+              "tool_calls":[{"id":"call_1","type":"function","function":{"name":"web_search","arguments":"{\"query\":\"CDQ2B20-10D 品牌\"}"}}]}}],
+             "usage":{"prompt_tokens":100,"completion_tokens":10,"total_tokens":110}}
+            """)
+        : (HttpStatusCode.OK, """
+            {"model":"deepseek-flash","choices":[{"finish_reason":"stop","message":{"role":"assistant","content":"{\"brand\":\"SMC\"}","reasoning_content":"官网写明是 SMC"}}],
+             "usage":{"prompt_tokens":300,"completion_tokens":5,"total_tokens":305}}
+            """));
+
+    var search = new FakeSearch(_ =>
+        [new WebSearchHit("SMC 薄型气缸 CDQ2B20-10D", "https://example.test/smc", "SMC", null, "摘要不进控制台")]);
+    var profile = new ProviderProfile("deepseek", "https://api.deepseek.com", "deepseek-chat", "sk-test", "store");
+    var trace = new ListProgress();
+    await client.CompleteAsync(
+        profile,
+        [new ChatMessage("system", "你是采购助手"), new ChatMessage("user", "CDQ2B20-10D\n是什么品牌")],
+        new ChatOptions { WebSearch = true, JsonOutput = true },
+        CancellationToken.None,
+        search,
+        trace);
+
+    // 一轮一段，一回来就报：提问 → 第 1 轮（思考 + 要搜的词）→ 搜索结果 → 第 2 轮（思考 + 答复 + 用量）。
+    Equal(4, trace.Items.Count);
+    var tag = trace.Items[0].Split(' ')[0];
+    True(tag.Length > 1 && tag[0] == '#', "每段开头必须是调用编号：" + trace.Items[0]);
+    True(trace.Items.All(item => item.StartsWith(tag + " ", StringComparison.Ordinal)), "同一次调用的每段都必须带同一个编号");
+
+    True(trace.Items[0].Contains("deepseek/deepseek-chat 联网 提问：CDQ2B20-10D 是什么品牌", StringComparison.Ordinal), "提问复述最后一条消息并压成一行：" + trace.Items[0]);
+    True(!trace.Items[0].Contains("你是采购助手", StringComparison.Ordinal), "系统提示不复述");
+    True(trace.Items[1].Contains("第 1 轮 思考：先搜型号", StringComparison.Ordinal), "工具轮必须报思考：" + trace.Items[1]);
+    True(trace.Items[1].Contains("第 1 轮 要求搜索：「CDQ2B20-10D 品牌」", StringComparison.Ordinal), "工具轮必须报要搜的词：" + trace.Items[1]);
+    True(trace.Items[2].Contains("搜索「CDQ2B20-10D 品牌」1 条", StringComparison.Ordinal), "搜索必须报结果条数：" + trace.Items[2]);
+    True(trace.Items[2].Contains("[1] SMC 薄型气缸 CDQ2B20-10D（SMC）", StringComparison.Ordinal), "搜索必须列出标题与来源：" + trace.Items[2]);
+    True(!trace.Items[2].Contains("摘要不进控制台", StringComparison.Ordinal), "摘要只交给模型，不进控制台");
+    True(trace.Items[3].Contains("第 2 轮 思考：官网写明是 SMC", StringComparison.Ordinal), "作答轮必须报思考：" + trace.Items[3]);
+    True(trace.Items[3].Contains("第 2 轮 答复：{\"brand\":\"SMC\"}", StringComparison.Ordinal), "作答轮必须报答复原文：" + trace.Items[3]);
+    True(trace.Items[3].Contains("完成：deepseek/deepseek-flash · 联网搜索 1 次 · 用量 400+15=415 tokens", StringComparison.Ordinal), "最后必须报用量：" + trace.Items[3]);
+    True(!trace.Items[3].Contains("结束原因", StringComparison.Ordinal), "结束原因是 stop 时不追加");
+
+    // 失败也要报出来，与失败回执同文；截断的答复要报结束原因。
+    var failing = new ListProgress();
+    using var rejected = FakeTransport.Client((_, _) => (HttpStatusCode.Unauthorized, """{"error": {"message": "Authentication Fails"}}"""));
+    var failure = await ThrowsAsync<ApolloRemoteException>(() => rejected.CompleteAsync(
+        profile, [new ChatMessage("user", "hi")], new ChatOptions(), CancellationToken.None, null, failing));
+    Equal(2, failing.Items.Count);
+    True(failing.Items[1].EndsWith("失败：" + failure.Message, StringComparison.Ordinal), "失败段必须与失败回执同文：" + failing.Items[1]);
+    True(failing.Items[0].Split(' ')[0] != tag, "每次调用编号不同");
+
+    var truncated = new ListProgress();
+    using var cut = FakeTransport.Client((_, _) => (HttpStatusCode.OK, """{"choices":[{"finish_reason":"length","message":{"content":"{\"bra"}}]}"""));
+    await cut.CompleteAsync(profile, [new ChatMessage("user", "hi")], new ChatOptions(), CancellationToken.None, null, truncated);
+    True(truncated.Items[^1].EndsWith("· 结束原因 length", StringComparison.Ordinal), "被截断时必须报结束原因：" + truncated.Items[^1]);
+    True(!truncated.Items[^1].Contains("第 1 轮", StringComparison.Ordinal), "不联网只有一轮，不标轮次");
+
+    // 指令接线：apollo.chat.ask 把总线给的进度通道交给这次调用。
+    using var scope = new StoreScope();
+    scope.Store.SetKey(null, "sk-0123456789abcdef");
+    using var plain = FakeTransport.Client((_, _) => (HttpStatusCode.OK, """{"model":"deepseek-chat","choices":[{"finish_reason":"stop","message":{"content":"好"}}]}"""));
+    var registry = new CommandRegistry();
+    ApolloCommandCatalog.Register(registry, scope.Store, plain, new FakeSearch(_ => []));
+    True(registry.TryGet("apollo.chat.ask", out var ask), "缺少 apollo.chat.ask");
+    var progress = new ListProgress();
+    var values = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase) { ["prompt"] = "你好" };
+    var result = await ask!.Handler(new CommandContext(ask, values, "test", progress, CancellationToken.None));
+    True(result.Success, "指令应成功：" + result.Message);
+    Equal(2, progress.Items.Count);
+    True(progress.Items[1].Contains("答复：好", StringComparison.Ordinal), "指令必须把过程写进总线的进度通道：" + progress.Items[1]);
+}
+
 /// <summary>用本机真实配置做一次联网实调；只在 APOLLO_LIVE_WEB=1 时运行。</summary>
 static async Task TestLiveWebCallAsync()
 {
@@ -664,6 +740,20 @@ file sealed class FakeTransport(Func<HttpRequestMessage, string?, (HttpStatusCod
             : await request.Content.ReadAsStringAsync(cancellationToken);
         var (status, text) = respond(request, body);
         return new HttpResponseMessage(status) { Content = new StringContent(text) };
+    }
+}
+
+/// <summary>
+/// 同步收集过程输出。<see cref="Progress{T}"/> 会把回调投递到线程池，测试里拿不到确定的先后。
+/// </summary>
+file sealed class ListProgress : IProgress<string>
+{
+    public List<string> Items { get; } = [];
+
+    public void Report(string value)
+    {
+        lock (Items)
+            Items.Add(value);
     }
 }
 

@@ -297,7 +297,9 @@ internal static class ApolloCommandCatalog
             WebSearch = context.GetBool("web", false),
         };
 
-        var outcome = await client.CompleteAsync(profile, messages, options, context.Cancellation, search)
+        // 过程一轮一段写进总线给的进度通道，也就是控制台（DEC-008）。经总线嵌套调用的消费方同样有这条通道，
+        // 所以它们不必、也不应该再从回执里复述搜索与答复。
+        var outcome = await client.CompleteAsync(profile, messages, options, context.Cancellation, search, context.Progress)
             .ConfigureAwait(false);
 
         // 搜过什么进本地日志：模型凭哪几次搜索下的结论，事后要查得到。
