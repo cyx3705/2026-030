@@ -2,8 +2,6 @@
 
 > 模型调用模块：把 OpenAI 兼容的对话补全接成宿主指令
 
-![OneHistory Logo](./Logo.png)
-
 ## 定位
 
 HistoryApollo 把 OpenAI 兼容的对话补全接口变成 HistoryVulcan 指令，首发内置 DeepSeek，可按需联网搜索（博查），
@@ -86,6 +84,9 @@ powershell -NoProfile -ExecutionPolicy Bypass -File .\b-Code\Test-ProjectContrac
 - **密钥不入库。** 项目合同检查会扫描全仓，拒绝任何形如 `sk-<长串>` 的真实密钥。
 - 嵌套调用的过程输出也逐轮进控制台；消费方不要再从载荷复述调用过程。
 
----
+## 保留内容
+- 本模板项目介绍：此为最初的准备的项目模板
+    每个分支项目都会由他去继承
+- 作者：Pinavia - 2025
 
-作者：Pinavia
+![logo](./Logo.png)
