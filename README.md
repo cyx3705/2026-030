@@ -1,55 +1,91 @@
-# HistoryApollo 模型调用
+# HistoryApollo
 
-HistoryApollo 是注册到 [HistoryVulcan](../2026-023-HistoryVulcan) 的模型调用模块：
-把 OpenAI 兼容的对话补全接口变成宿主指令，首发内置 DeepSeek，可按需联网搜索（博查）。
+> 模型调用模块：把 OpenAI 兼容的对话补全接成宿主指令
 
 ![OneHistory Logo](./Logo.png)
 
-它只做一件事——**把一次模型调用说清楚**。会话历史、提示词工程、重试编排和流式输出
-都属于调用方，不在这里。
+## 定位
 
-## 快速使用
+HistoryApollo 把 OpenAI 兼容的对话补全接口变成 HistoryVulcan 指令，首发内置 DeepSeek，可按需联网搜索（博查），
+每一轮往返实时写进控制台。
+
+- 它只做一件事——**把一次模型调用说清楚**。
+- 会话历史、提示词工程、重试编排和逐字流式输出都属于调用方，不在这里。
+
+## 概况
+
+| 项 | 值 |
+| --- | --- |
+| 编号 | `2026-030` |
+| 角色 | 宿主模块（`kind=module`） |
+| 指令域 | `apollo` |
+| 界面 | 无（`ui: false`） |
+| MCP 投影 | `standard` |
+| 版本与宿主下限 | [`HistoryApolloVersion.props`](./b-Code/HistoryApollo/HistoryApolloVersion.props) |
+
+## 能力
+
+| 类 | 指令 | 用途 |
+| --- | --- | --- |
+| `chat` | `apollo.chat.ask` / `send` | 单轮提问 / 完整消息数组；`web=true` 时模型自行决定是否联网 |
+| `model` | `apollo.model.list` | 模型清单 |
+| `provider` | `apollo.provider.list` / `use` / `config` | 供应商、默认模型与接入点 |
+| `key` | `apollo.key.set` / `clear` | 密钥读写（回执只出掩码） |
 
 ```
 apollo.key.set token=<密钥> provider=deepseek
 apollo.chat.ask prompt=用一句话解释张量
-apollo.key.set token=<博查密钥> provider=bocha
 apollo.chat.ask prompt="CDQ2B20-10D 是哪个品牌的气缸" web=true
-apollo.provider.list
 ```
 
-指令、参数、返回载荷与密钥约定见 [`b-Office/package/模块API.md`](./b-Office/package/模块API.md)。
+参数、返回载荷与失败语义见 [模块 API](./b-Office/package/模块API.md)。
 
 ## 入口
 
 | 入口 | 用途 |
 | --- | --- |
-| [`AGENTS.md`](./AGENTS.md) | AI 读取顺序、真值规则、工作边界与完成要求 |
-| [`project.manifest.json`](./project.manifest.json) | 项目身份、活动目录、命令与上下文排除项 |
-| [`b-Office/package/模块API.md`](./b-Office/package/模块API.md) | 模块消费合同（随发布包同行） |
-| [`b-Office/current/项目概览.md`](./b-Office/current/项目概览.md) | 目标、范围、状态和交付物 |
-| [`b-Office/current/技术合同.md`](./b-Office/current/技术合同.md) | 现行需求和系统架构 |
-| [`b-Office/current/有效决策.md`](./b-Office/current/有效决策.md) | 当前仍然有效的关键决策 |
-| [`b-Office/current/验证合同.md`](./b-Office/current/验证合同.md) | 验证层级、命令和证据 |
-| [`b-Office/文档中心.md`](./b-Office/文档中心.md) | 文档索引及根目录 a/b/z 规范 |
+| [`AGENTS.md`](./AGENTS.md) | AI 工作合同：读取顺序、真值判定、边界 |
+| [`project.manifest.json`](./project.manifest.json) | 项目身份、活动目录、文档与命令 |
+| [文档中心](./b-Office/文档中心.md) | 文档索引与读取顺序 |
+| [项目概览](./b-Office/current/项目概览.md) | 目标、范围与状态 |
+| [技术合同](./b-Office/current/技术合同.md) | 现行需求与架构 |
+| [有效决策](./b-Office/current/有效决策.md) | 仍然有效的关键决策 |
+| [验证合同](./b-Office/current/验证合同.md) | 验证层级、命令与证据 |
+| [模块 API](./b-Office/package/模块API.md) | 跨模块消费合同 |
 
-## 常用命令
+## 目录
+
+| 路径 | 职责 |
+| --- | --- |
+| `b-Code/HistoryApollo/` | 模块源码、manifest 与 `eng/` 构建脚本 |
+| `b-Code/HistoryApollo.Tests/` | 自动验证 |
+| `b-Code/` | 项目合同检查 |
+| `b-Office/` | 项目文档：`current/` 现行合同、`package/` 消费合同、`history/` 只读归档 |
+| `z-Publish/` | 正式快照与 `history/` 归档，由宿主管线写入 |
+
+## 构建与验证
 
 ```powershell
-dotnet build .\b-Code\HistoryApollo\HistoryApollo.csproj -c Release
-dotnet run --project .\b-Code\HistoryApollo.Tests\HistoryApollo.Tests.csproj -c Release
+dotnet build .\b-Code\HistoryApollo\HistoryApollo.csproj -c Release -p:NuGetAudit=false
+dotnet run --project .\b-Code\HistoryApollo.Tests\HistoryApollo.Tests.csproj -c Release -p:NuGetAudit=false
 powershell -NoProfile -ExecutionPolicy Bypass -File .\b-Code\Test-ProjectContract.ps1 -Instantiation
-powershell -NoProfile -ExecutionPolicy Bypass -File .\b-Code\HistoryApollo\eng\Build-HistoryApolloPackage.ps1
 ```
 
-自动验证全程离线：对话相关用例走假传输，不出网、不计费。需要联网实调时设
-`APOLLO_LIVE=1` 再跑测试，它会用本机真实配置发一次最小请求。
+自动验证全程离线：对话用例走假传输，不出网、不计费。需要联网实调时设 `APOLLO_LIVE=1` 再跑测试。
 
-## 密钥
+## 开发与发布
 
-密钥只落在本机 `%AppData%\HistoryVulcan\Modules\HistoryApollo\data\providers.json`，
-或由环境变量 `APOLLO_DEEPSEEK_KEY` / `DEEPSEEK_API_KEY` 提供（环境变量优先）；博查是 `APOLLO_BOCHA_KEY` / `BOCHA_API_KEY`。
+改动只进 `vulcan.dev.start` 创建的工作区，经宿主 Console CLI 走
+`vulcan.dev.start` → `vulcan.dev.submit`（候选构建并热装送审）→ `vulcan.dev.finish`（批准后并回并写入 `z-Publish`）。
+本仓不自行发布；`eng/Build-HistoryApolloPackage.ps1` 只用于本地候选构建。
 
-**密钥不入库。** 项目合同检查会扫描全仓并拒绝任何形如 `sk-<长串>` 的真实密钥。
+## 要点
+
+- 密钥只落在本机 `%AppData%\HistoryVulcan\Modules\HistoryApollo\data\providers.json`，或由环境变量提供（优先）：
+  DeepSeek 为 `APOLLO_DEEPSEEK_KEY` / `DEEPSEEK_API_KEY`，博查为 `APOLLO_BOCHA_KEY` / `BOCHA_API_KEY`。
+- **密钥不入库。** 项目合同检查会扫描全仓，拒绝任何形如 `sk-<长串>` 的真实密钥。
+- 嵌套调用的过程输出也逐轮进控制台；消费方不要再从载荷复述调用过程。
+
+---
 
 作者：Pinavia
