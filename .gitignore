@@ -42,6 +42,9 @@ TestResults/
 artifacts/
 work/
 
+# 工作区本机覆盖点（vulcan.dev.start 生成，不入库）
+Directory.Build.user.props
+
 # Local and generated files
 *.bak
 *.cache

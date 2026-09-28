@@ -1,0 +1,10 @@
+<Project>
+  <!--
+    本机覆盖点。各工程按相对路径引用宿主 z 快照（假定本仓与 2026-023-HistoryVulcan 在同一库根下），
+    而 AI 工作树落在库根之外，那条相对路径必然指空。vulcan.dev.start 只在项目根有本文件时
+    生成 Directory.Build.user.props，把 HistoryVulcanPackageRoot 指回来源仓的绝对路径。
+    该文件不入库（见 .gitignore），因此工作树从诞生起就是干净的。
+  -->
+  <Import Project="$(MSBuildThisFileDirectory)Directory.Build.user.props"
+          Condition="Exists('$(MSBuildThisFileDirectory)Directory.Build.user.props')" />
+</Project>
