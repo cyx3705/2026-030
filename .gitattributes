@@ -3,3 +3,6 @@
 # 新仓从零开始，没有历史指针需要保活，因此不设任何 filter=lfs 规则。
 # 只有单个文件超过 GitHub 100MB 硬限时，才由提交链路逐个征求人工同意后按精确路径追加。
 * text=auto
+
+# Published package hashes cover exact bytes; Git must not normalize package content.
+z-Publish/** binary
