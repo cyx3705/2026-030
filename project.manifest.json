@@ -80,5 +80,32 @@
     "**/node_modules/**",
     "**/.vs/**",
     "artifacts/**"
-  ]
+  ],
+  "publish": {
+    "versionProps": "b-Code\\HistoryApollo\\HistoryApolloVersion.props",
+    "versionProperty": "HistoryApolloVersion",
+    "sourceManifest": "b-Code\\HistoryApollo\\module.manifest.json",
+    "package": {
+      "project": "b-Code\\HistoryApollo\\HistoryApollo.csproj",
+      "files": [
+        "HistoryApollo.dll",
+        "HistoryApollo.xml",
+        "module.manifest.json"
+      ]
+    },
+    "validation": [
+      {
+        "tool": "dotnet.exe",
+        "arguments": [
+          "run",
+          "--project",
+          "b-Code\\HistoryApollo.Tests\\HistoryApollo.Tests.csproj",
+          "-c",
+          "Release",
+          "-p:NuGetAudit=false"
+        ],
+        "description": "Run HistoryApollo offline tests"
+      }
+    ]
+  }
 }
