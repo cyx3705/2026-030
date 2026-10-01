@@ -306,7 +306,7 @@ static Task TestCommandRegistrationAsync()
 {
     using var scope = new StoreScope();
     using var client = FakeTransport.Client((_, _) => (HttpStatusCode.OK, "{}"));
-    var registry = new CommandRegistry();
+    var registry = new Registrar();
 
     // 注册表在这里会同时校验 Ask 与 ConfirmPrompt 是否配套、命令类是否合法。
     ApolloCommandCatalog.Register(registry, scope.Store, client, new FakeSearch(_ => []));
@@ -326,12 +326,11 @@ static Task TestCommandRegistrationAsync()
     {
         True(registry.TryGet(name, out var descriptor), $"未注册 {name}");
         Equal("apollo", descriptor!.Domain!);
-        Equal(ApolloCommandCatalog.Source, registry.GetSource(name)!);
     }
 
     Equal(
         expected.Length,
-        registry.All().Count(descriptor => descriptor.Name.StartsWith("apollo.", StringComparison.Ordinal)));
+        registry.All.Count(descriptor => descriptor.Name.StartsWith("apollo.", StringComparison.Ordinal)));
 
     True(registry.TryGet("apollo.key.clear", out var clear), "缺少 apollo.key.clear");
     Equal(CommandLevel.Ask, clear!.Level);
@@ -357,7 +356,7 @@ static Task TestSecretParameterContractAsync()
 {
     using var scope = new StoreScope();
     using var client = FakeTransport.Client((_, _) => (HttpStatusCode.OK, "{}"));
-    var registry = new CommandRegistry();
+    var registry = new Registrar();
     ApolloCommandCatalog.Register(registry, scope.Store, client, new FakeSearch(_ => []));
 
     // 总线按参数名判定敏感值：名字必须以 token 结尾，位置 0 才会被位置传参的遮蔽覆盖。
@@ -369,9 +368,19 @@ static Task TestSecretParameterContractAsync()
     return Task.CompletedTask;
 }
 
+/// <summary>
+/// 实调用本机真实配置：模块装在宿主里时的数据目录。宿主 6.0.0 起由宿主给，测试进程里没有宿主，
+/// 所以按 APOLLO_DATA 指定，缺省取宿主的模块数据根（只在 APOLLO_LIVE* 实调时用到）。
+/// </summary>
+static string LiveDataDirectory()
+    => Environment.GetEnvironmentVariable("APOLLO_DATA") is { Length: > 0 } path
+        ? path
+        : Path.Combine(Environment.GetEnvironmentVariable("APPDATA") ?? "", "HistoryVulcan", "ModuleData", "HistoryApollo");
+
 /// <summary>用本机真实配置向 DeepSeek 发一次最小请求；只在 APOLLO_LIVE=1 时运行。</summary>
 static async Task TestLiveCallAsync()
 {
+    ApolloRuntime.Use(LiveDataDirectory());
     var profile = ApolloRuntime.Providers.Resolve(null);
     True(profile.HasKey, $"{profile.Name} 未配置密钥，无法做联网实调");
 
@@ -620,7 +629,7 @@ static async Task TestChatTraceAsync()
     using var scope = new StoreScope();
     scope.Store.SetKey(null, "sk-0123456789abcdef");
     using var plain = FakeTransport.Client((_, _) => (HttpStatusCode.OK, """{"model":"deepseek-chat","choices":[{"finish_reason":"stop","message":{"content":"好"}}]}"""));
-    var registry = new CommandRegistry();
+    var registry = new Registrar();
     ApolloCommandCatalog.Register(registry, scope.Store, plain, new FakeSearch(_ => []));
     True(registry.TryGet("apollo.chat.ask", out var ask), "缺少 apollo.chat.ask");
     var progress = new ListProgress();
@@ -634,6 +643,7 @@ static async Task TestChatTraceAsync()
 /// <summary>用本机真实配置做一次联网实调；只在 APOLLO_LIVE_WEB=1 时运行。</summary>
 static async Task TestLiveWebCallAsync()
 {
+    ApolloRuntime.Use(LiveDataDirectory());
     var store = ApolloRuntime.Providers;
     var profile = store.ResolveChat(null);
     True(profile.HasKey, $"{profile.Name} 未配置密钥，无法做联网实调");
@@ -771,4 +781,23 @@ file sealed class FakeSearch(Func<string, IReadOnlyList<WebSearchHit>> respond) 
         Queries.Add(query);
         return Task.FromResult(respond(query));
     }
+}
+
+/// <summary>
+/// 模块登记口的测试替身：只记下登记了哪些指令。宿主 6.0.0 起注册表是宿主内部类，
+/// 登记口 ICommandRegistrar 就是模块能看到的全部；来源由宿主盖章，这里不再核对。
+/// </summary>
+sealed class Registrar : ICommandRegistrar
+{
+    private readonly Dictionary<string, CommandDescriptor> _commands = new(StringComparer.OrdinalIgnoreCase);
+
+    public IReadOnlyCollection<CommandDescriptor> All => _commands.Values;
+
+    public void Register(CommandDescriptor descriptor)
+    {
+        if (!_commands.TryAdd(descriptor.Name, descriptor))
+            throw new InvalidOperationException($"重复登记 {descriptor.Name}");
+    }
+
+    public bool TryGet(string name, out CommandDescriptor? descriptor) => _commands.TryGetValue(name, out descriptor);
 }

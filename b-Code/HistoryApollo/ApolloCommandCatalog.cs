@@ -8,9 +8,8 @@ namespace HistoryApollo;
 internal static class ApolloCommandCatalog
 {
     private const string Domain = "apollo";
-    internal const string Source = "module:HistoryApollo";
 
-    public static void Register(CommandRegistry registry, ProviderStore store, ChatClient client, IWebSearch search)
+    public static void Register(ICommandRegistrar registry, ProviderStore store, ChatClient client, IWebSearch search)
     {
         registry.Register(
             new CommandDescriptor
@@ -41,8 +40,7 @@ internal static class ApolloCommandCatalog
                         context.GetString("prompt"));
                     return await CompleteAsync(store, client, search, context, messages).ConfigureAwait(false);
                 }),
-            },
-            Source);
+            });
 
         registry.Register(
             new CommandDescriptor
@@ -70,8 +68,7 @@ internal static class ApolloCommandCatalog
                     var messages = ChatTranscript.Parse(context.GetString("messages"));
                     return await CompleteAsync(store, client, search, context, messages).ConfigureAwait(false);
                 }),
-            },
-            Source);
+            });
 
         registry.Register(
             new CommandDescriptor
@@ -102,8 +99,7 @@ internal static class ApolloCommandCatalog
                           + string.Join(Environment.NewLine, models.Select(model => "  " + model));
                     return CommandResult.Ok(text, JsonSerializer.Serialize(models));
                 }),
-            },
-            Source);
+            });
 
         registry.Register(
             new CommandDescriptor
@@ -129,8 +125,7 @@ internal static class ApolloCommandCatalog
 
                     return CommandResult.Ok(lines.ToString().TrimEnd(), DescribeProviders(store));
                 }),
-            },
-            Source);
+            });
 
         registry.Register(
             new CommandDescriptor
@@ -158,8 +153,7 @@ internal static class ApolloCommandCatalog
                         $"默认供应商已设为 {profile.Name}（模型 {profile.Model}）",
                         DescribeProviders(store)));
                 }),
-            },
-            Source);
+            });
 
         registry.Register(
             new CommandDescriptor
@@ -216,8 +210,7 @@ internal static class ApolloCommandCatalog
                         $"{profile.Name}：模型={profile.Model} 接入点={profile.BaseUrl}",
                         DescribeProviders(store)));
                 }),
-            },
-            Source);
+            });
 
         registry.Register(
             new CommandDescriptor
@@ -251,8 +244,7 @@ internal static class ApolloCommandCatalog
                     return Task.FromResult(CommandResult.Ok(
                         $"{profile.Name} 密钥已保存：{ProviderStore.Mask(profile.ApiKey)}{note}"));
                 }),
-            },
-            Source);
+            });
 
         registry.Register(
             new CommandDescriptor
@@ -274,8 +266,7 @@ internal static class ApolloCommandCatalog
                         : string.Empty;
                     return Task.FromResult(CommandResult.Ok($"{profile.Name} 已清除本机密钥{remaining}"));
                 }),
-            },
-            Source);
+            });
     }
 
     private static async Task<CommandResult> CompleteAsync(

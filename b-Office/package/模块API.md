@@ -165,13 +165,12 @@ apollo.chat.ask prompt="CDQ2B20-10D 是哪个品牌的气缸" web=true
 
 1. 环境变量 `APOLLO_<供应商大写>_KEY`（如 `APOLLO_DEEPSEEK_KEY`）
 2. 环境变量 `<供应商大写>_API_KEY`（如 `DEEPSEEK_API_KEY`、`BOCHA_API_KEY`）
-3. 本机库文件 `%AppData%\HistoryVulcan\Modules\HistoryApollo\data\providers.json`
+3. 本机库文件 `%AppData%\HistoryVulcan\ModuleData\HistoryApollo\providers.json`（宿主给的数据目录）
 
 `apollo.provider.list` 会报告当次生效的来源（`env:…` / `store` / `none`），
 用来分辨「改了库却仍被环境变量覆盖」。
 
-库文件在运行包的 `data/` 下：按宿主模块合同，升级时该目录保留，热装不会抹掉密钥。
-它不计入 `SHA256SUMS`。**密钥任何情况下不进仓库**，项目合同检查会扫描并拒绝。
+库文件在宿主给的数据目录里，独立于运行包槽位：装包、热装、卸载都不动它，热装不会抹掉密钥。**密钥任何情况下不进仓库**，项目合同检查会扫描并拒绝。
 
 ## 失败
 

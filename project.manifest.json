@@ -15,7 +15,7 @@
       "ai-module"
     ],
     "status": "active",
-    "version": "0.3.2",
+    "version": "0.4.0",
     "branch": "main"
   },
   "paths": {
@@ -67,7 +67,7 @@
     "package": "powershell -NoProfile -ExecutionPolicy Bypass -File .\\b-Code\\HistoryApollo\\eng\\Build-HistoryApolloPackage.ps1"
   },
   "externalDependencies": [
-    "HistoryVulcan 5.1.2 发布快照：C:\\OneHistory\\HistoryClio\\2026-023-HistoryVulcan\\z-Publish",
+    "HistoryVulcan 6.0.0 或更新的发布快照：C:\\OneHistory\\HistoryClio\\2026-023-HistoryVulcan\\z-Publish",
     ".NET SDK 9（目标框架 net8.0）",
     "DeepSeek 开放平台：https://api.deepseek.com",
     "博查 Web Search API：https://api.bochaai.com（apollo.chat.* web=true 时代模型搜索）"

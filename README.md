@@ -79,7 +79,7 @@ powershell -NoProfile -ExecutionPolicy Bypass -File .\b-Code\Test-ProjectContrac
 
 ## 要点
 
-- 密钥只落在本机 `%AppData%\HistoryVulcan\Modules\HistoryApollo\data\providers.json`，或由环境变量提供（优先）：
+- 密钥只落在本机 `%AppData%\HistoryVulcan\ModuleData\HistoryApollo\providers.json`（宿主给的数据目录），或由环境变量提供（优先）：
   DeepSeek 为 `APOLLO_DEEPSEEK_KEY` / `DEEPSEEK_API_KEY`，博查为 `APOLLO_BOCHA_KEY` / `BOCHA_API_KEY`。
 - **密钥不入库。** 项目合同检查会扫描全仓，拒绝任何形如 `sk-<长串>` 的真实密钥。
 - 嵌套调用的过程输出也逐轮进控制台；消费方不要再从载荷复述调用过程。

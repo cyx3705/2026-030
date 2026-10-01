@@ -25,6 +25,8 @@ public sealed class HistoryApolloModule : IModuleContextAware, IDisposable
     public void Attach(IModuleContext context)
     {
         ArgumentNullException.ThrowIfNull(context);
+        // 0.4.0：数据目录由宿主给，不再自己拼 %AppData% 下的包槽位路径（宿主 6.0.0 统一契约）。
+        ApolloRuntime.Use(context.Environment.DataDirectory);
 
         lock (_gate)
         {
