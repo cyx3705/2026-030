@@ -63,12 +63,7 @@ try {
         Copy-Item -LiteralPath $source -Destination (Join-Path $stage $name) -Force
     }
 
-    # 模块消费文档随包走：装到运行区之后，读文档不必回头找源码仓。
-    $docsSource = Join-Path $repoRoot 'b-Office\package\模块API.md'
-    if (-not (Test-Path -LiteralPath $docsSource)) { throw "模块 API 文档缺失: $docsSource" }
-    $docsStage = Join-Path $stage 'docs'
-    New-Item -ItemType Directory -Path $docsStage -Force | Out-Null
-    Copy-Item -LiteralPath $docsSource -Destination (Join-Path $docsStage '模块API.md') -Force
+    # 宿主 6.1.0（DEC-072）起包里不带 docs/：说明书只来自指令注册时的自描述。
 
     # SHA256SUMS 覆盖包内全部有效载荷，排除自身、history/ 与 data/。
     $lines = Get-ChildItem -LiteralPath $stage -Recurse -File | ForEach-Object {

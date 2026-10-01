@@ -36,7 +36,7 @@ apollo.chat.ask prompt=用一句话解释张量
 apollo.chat.ask prompt="CDQ2B20-10D 是哪个品牌的气缸" web=true
 ```
 
-参数、返回载荷与失败语义见 [模块 API](./b-Office/package/模块API.md)。
+参数读注册自描述：`diana.docs.read domain=apollo`（宿主 6.1.0 起没有消费文档）；返回载荷、密钥与失败语义见 [技术合同](./b-Office/current/技术合同.md)「对外约定」。
 
 ## 入口
 
@@ -49,7 +49,6 @@ apollo.chat.ask prompt="CDQ2B20-10D 是哪个品牌的气缸" web=true
 | [技术合同](./b-Office/current/技术合同.md) | 现行需求与架构 |
 | [有效决策](./b-Office/current/有效决策.md) | 仍然有效的关键决策 |
 | [验证合同](./b-Office/current/验证合同.md) | 验证层级、命令与证据 |
-| [模块 API](./b-Office/package/模块API.md) | 跨模块消费合同 |
 
 ## 目录
 
@@ -58,7 +57,7 @@ apollo.chat.ask prompt="CDQ2B20-10D 是哪个品牌的气缸" web=true
 | `b-Code/HistoryApollo/` | 模块源码、manifest 与 `eng/` 构建脚本 |
 | `b-Code/HistoryApollo.Tests/` | 自动验证 |
 | `b-Code/` | 项目合同检查 |
-| `b-Office/` | 项目文档：`current/` 现行合同、`package/` 消费合同、`history/` 只读归档 |
+| `b-Office/` | 项目文档：`current/` 现行合同、`history/` 只读归档 |
 | `z-Publish/` | 正式快照与 `history/` 归档，由宿主管线写入 |
 
 ## 构建与验证

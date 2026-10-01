@@ -21,7 +21,6 @@
   "paths": {
     "activeRoots": [
       "b-Office/current",
-      "b-Office/package",
       "b-Code/HistoryApollo",
       "b-Code/HistoryApollo.Tests",
       "b-Code"
@@ -50,7 +49,6 @@
   },
   "documents": {
     "center": "b-Office/文档中心.md",
-    "package": "b-Office/package/模块API.md",
     "structure": "b-Office/文档中心.md",
     "overview": "b-Office/current/项目概览.md",
     "technicalContract": "b-Office/current/技术合同.md",
