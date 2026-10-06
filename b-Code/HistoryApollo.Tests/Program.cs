@@ -24,12 +24,18 @@ var tests = new (string Name, Func<Task> Run)[]
     ("web search tool loop", TestWebSearchToolLoopAsync),
     ("web search budget", TestWebSearchBudgetAsync),
     ("chat trace", TestChatTraceAsync),
+    ("vision provider", TestVisionProviderAsync),
+    ("chat images", TestChatImagesAsync),
 };
 
 // 联网实调默认不跑：它要花钱、要外网，且依赖本机已配置的真实密钥。
 // 交付验收时显式打开 APOLLO_LIVE=1，让「能不能真的调通」这件事也有可重复的证据。
 if (string.Equals(Environment.GetEnvironmentVariable("APOLLO_LIVE"), "1", StringComparison.Ordinal))
     tests = [.. tests, ("live deepseek call", TestLiveCallAsync)];
+
+// 识图实调另开一个开关：要通义千问（识图供应商）的密钥。
+if (string.Equals(Environment.GetEnvironmentVariable("APOLLO_LIVE_VISION"), "1", StringComparison.Ordinal))
+    tests = [.. tests, ("live vision call", TestLiveVisionCallAsync)];
 
 // 联网搜索实调另开一个开关：它还要博查密钥，不该让只配了 DeepSeek 的机器 VERIFY-LIVE 变红。
 if (string.Equals(Environment.GetEnvironmentVariable("APOLLO_LIVE_WEB"), "1", StringComparison.Ordinal))
@@ -101,9 +107,9 @@ static Task TestDefineProviderAsync()
     Equal("kimi", defined.Model);
     True(scope.Store.Knows("moonshot"), "登记后应认识 moonshot");
 
-    // 内置的两家（deepseek 与搜索服务 bocha）仍在，登记新供应商不会顶掉它们。
+    // 内置的三家（deepseek、识图 qwen 与搜索服务 bocha）仍在，登记新供应商不会顶掉它们。
     Equal("https://api.deepseek.com", scope.Store.Resolve("deepseek").BaseUrl);
-    Equal(3, scope.Store.All().Count);
+    Equal(4, scope.Store.All().Count);
 
     Throws<ApolloInputException>(() => scope.Store.Define("bad name", "https://x.test", null));
     Throws<ApolloInputException>(() => scope.Store.Define("ok", "not-a-url", null));
@@ -661,6 +667,117 @@ static async Task TestLiveWebCallAsync()
     True(outcome.SearchCount > 0, "联网实调应至少发起一次搜索");
     True(!string.IsNullOrWhiteSpace(outcome.Content), "联网实调应返回非空正文");
     Console.WriteLine($"     实调 {outcome.Provider}/{outcome.Model} 搜索 {outcome.SearchCount} 次 → {outcome.Content.Trim()}"
+                      + $"（{outcome.TotalTokens} tokens，{outcome.ElapsedMilliseconds}ms）");
+}
+
+static Task TestVisionProviderAsync()
+{
+    using var scope = new StoreScope();
+    // 没设过就是内置的通义千问；默认供应商仍是 deepseek，两者互不影响。
+    Equal(ProviderStore.BuiltinVisionProvider, scope.Store.VisionProvider);
+    var qwen = scope.Store.ResolveVision(null);
+    Equal("qwen", qwen.Name);
+    Equal("https://dashscope.aliyuncs.com/compatible-mode/v1", qwen.BaseUrl);
+    Equal("qwen-vl-max", qwen.Model);
+    Equal("deepseek", scope.Store.ResolveChat(null).Name);
+
+    // 写了名字就听调用方的；搜索服务不能当识图供应商。
+    Equal("deepseek", scope.Store.ResolveVision("deepseek").Name);
+    Throws<ApolloInputException>(() => scope.Store.SetVisionProvider("bocha"));
+    Throws<ApolloInputException>(() => scope.Store.SetVisionProvider("nowhere"));
+
+    // 换识图供应商落盘，不碰默认供应商；0.4 的旧库（没有 vision 项）读出来是内置值。
+    scope.Store.Define("doubao", "https://ark.cn-beijing.volces.com/api/v3", "ep-test");
+    scope.Store.SetVisionProvider("doubao");
+    var reopened = new ProviderStore(scope.Store.Path);
+    Equal("doubao", reopened.VisionProvider);
+    Equal("deepseek", reopened.DefaultProvider);
+    File.WriteAllText(scope.Store.Path, """{"default":"deepseek","providers":{}}""");
+    Equal("qwen", new ProviderStore(scope.Store.Path).VisionProvider);
+    return Task.CompletedTask;
+}
+
+static async Task TestChatImagesAsync()
+{
+    using var scope = new StoreScope();
+    var root = Path.GetDirectoryName(scope.Store.Path)!;
+    Directory.CreateDirectory(root);
+    var png = Path.Combine(root, "图纸 1.png");
+    File.WriteAllBytes(png, [0x89, 0x50, 0x4E, 0x47]);
+
+    // 读成 data URL；空参数没有图；相对路径、不认的格式、不存在、超量都拒。
+    var images = ChatImages.Load($" \"{png}\" ");
+    Equal(1, images.Count);
+    Equal("data:image/png;base64,iVBORw==", images[0]);
+    Equal(0, ChatImages.Load(null).Count);
+    Throws<ApolloInputException>(() => ChatImages.Load("图纸.png"));
+    Throws<ApolloInputException>(() => ChatImages.Load(Path.Combine(root, "a.tif")));
+    Throws<ApolloInputException>(() => ChatImages.Load(Path.Combine(root, "missing.png")));
+    Throws<ApolloInputException>(() => ChatImages.Load(string.Join("|", Enumerable.Repeat(png, ChatImages.MaxCount + 1))));
+
+    // 挂在最后一条 user 消息上；没有 user 消息就拒。
+    var attached = ChatImages.Attach([new ChatMessage("user", "a"), new ChatMessage("assistant", "b"), new ChatMessage("user", "c")], images);
+    Equal(0, attached[0].ImageCount);
+    Equal(1, attached[2].ImageCount);
+    Throws<ApolloInputException>(() => ChatImages.Attach([new ChatMessage("system", "x")], images));
+
+    // 指令接线：带图且没写 provider → 走识图供应商的接入点，content 是「文字 + image_url」数组；控制台报附图张数。
+    scope.Store.SetKey("qwen", "sk-qwen-test");
+    string? url = null, body = null;
+    using var client = FakeTransport.Client((request, sent) =>
+    {
+        (url, body) = (request.RequestUri!.ToString(), sent);
+        return (HttpStatusCode.OK, """{"model":"qwen-vl-max","choices":[{"finish_reason":"stop","message":{"content":"一块板"}}]}""");
+    });
+    var registry = new Registrar();
+    ApolloCommandCatalog.Register(registry, scope.Store, client, new FakeSearch(_ => []));
+    True(registry.TryGet("apollo.chat.ask", out var ask), "缺少 apollo.chat.ask");
+    True(ask!.Parameters.Any(parameter => parameter.Name == "images"), "apollo.chat.ask 必须有 images 参数");
+    var progress = new ListProgress();
+    var values = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase) { ["prompt"] = "这是什么", ["images"] = png };
+    var result = await ask.Handler(new CommandContext(ask, values, "test", progress, CancellationToken.None));
+    True(result.Success, "带图调用应成功：" + result.Message);
+    Equal("https://dashscope.aliyuncs.com/compatible-mode/v1/chat/completions", url!);
+    using (var sent = JsonDocument.Parse(body!))
+    {
+        var content = sent.RootElement.GetProperty("messages")[0].GetProperty("content");
+        Equal(JsonValueKind.Array, content.ValueKind);
+        Equal("这是什么", content[0].GetProperty("text").GetString()!);
+        Equal("image_url", content[1].GetProperty("type").GetString()!);
+        Equal(images[0], content[1].GetProperty("image_url").GetProperty("url").GetString()!);
+    }
+
+    True(progress.Items[0].Contains("qwen/qwen-vl-max 附图 1 张 提问：这是什么", StringComparison.Ordinal), "控制台必须报附图张数：" + progress.Items[0]);
+    True(!progress.Items[0].Contains("base64", StringComparison.Ordinal), "图片内容不进控制台");
+
+    // 不带图：content 仍是字符串，走默认供应商（0.4 行为不变）。
+    scope.Store.SetKey(null, "sk-0123456789abcdef");
+    values.Remove("images");
+    result = await ask.Handler(new CommandContext(ask, values, "test", new ListProgress(), CancellationToken.None));
+    True(result.Success, "不带图调用应成功：" + result.Message);
+    Equal("https://api.deepseek.com/chat/completions", url!);
+    using (var sent = JsonDocument.Parse(body!))
+        Equal(JsonValueKind.String, sent.RootElement.GetProperty("messages")[0].GetProperty("content").ValueKind);
+}
+
+/// <summary>用本机真实配置让识图供应商看一张图；只在 APOLLO_LIVE_VISION=1 时运行，图片取 APOLLO_LIVE_IMAGE。</summary>
+static async Task TestLiveVisionCallAsync()
+{
+    ApolloRuntime.Use(LiveDataDirectory());
+    var profile = ApolloRuntime.Providers.ResolveVision(null);
+    True(profile.HasKey, $"{profile.Name} 未配置密钥：先 apollo.key.set provider={profile.Name} token=<密钥>");
+    var image = Environment.GetEnvironmentVariable("APOLLO_LIVE_IMAGE");
+    True(!string.IsNullOrWhiteSpace(image), "APOLLO_LIVE_IMAGE 要给一张本机图片的绝对路径");
+
+    using var client = new ChatClient();
+    var outcome = await client.CompleteAsync(
+        profile,
+        ChatImages.Attach(ChatTranscript.FromPrompt(null, "用一句话说这张图里是什么。"), ChatImages.Load(image)),
+        new ChatOptions { MaxTokens = 200, TimeoutSeconds = 90 },
+        CancellationToken.None);
+
+    True(!string.IsNullOrWhiteSpace(outcome.Content), "识图实调应返回非空正文");
+    Console.WriteLine($"     实调 {outcome.Provider}/{outcome.Model} → {outcome.Content.Trim()}"
                       + $"（{outcome.TotalTokens} tokens，{outcome.ElapsedMilliseconds}ms）");
 }
 

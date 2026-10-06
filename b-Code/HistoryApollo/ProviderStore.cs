@@ -58,10 +58,15 @@ internal sealed class ProviderStore(string path)
         new Dictionary<string, ProviderDefaults>(StringComparer.OrdinalIgnoreCase)
         {
             ["deepseek"] = new("https://api.deepseek.com", "deepseek-chat"),
+            // 0.5.0：识图。DeepSeek 收图片但看不到（实测只回「无法查看图片」），带图的请求默认走这家（用户选的通义千问）。
+            [BuiltinVisionProvider] = new("https://dashscope.aliyuncs.com/compatible-mode/v1", "qwen-vl-max"),
             [SearchProvider] = new("https://api.bochaai.com", string.Empty, ProviderKind.Search),
         };
 
     private const string BuiltinDefaultProvider = "deepseek";
+
+    /// <summary>没设过识图供应商时，带图片的请求走这家。</summary>
+    public const string BuiltinVisionProvider = "qwen";
 
     /// <summary><c>web=true</c> 时代模型执行搜索的服务名。</summary>
     public const string SearchProvider = "bocha";
@@ -76,6 +81,16 @@ internal sealed class ProviderStore(string path)
         {
             lock (_gate)
                 return Load().Default;
+        }
+    }
+
+    /// <summary>识图供应商（0.5.0）：带图片且没写 <c>provider=</c> 的请求走它。</summary>
+    public string VisionProvider
+    {
+        get
+        {
+            lock (_gate)
+                return Load().Vision;
         }
     }
 
@@ -127,6 +142,13 @@ internal sealed class ProviderStore(string path)
 
         return profile;
     }
+
+    /// <summary>
+    /// 解析带图片那次调用的供应商：写了名字就用它（调用方说了算），没写取识图供应商而不是默认供应商——
+    /// 默认供应商多半是纯文本模型，图片照收却看不到，答复会像模像样地瞎编。
+    /// </summary>
+    public ProviderProfile ResolveVision(string? name)
+        => ResolveChat(string.IsNullOrWhiteSpace(name) ? VisionProvider : name);
 
     /// <summary>写入密钥。空值按清除处理由调用方拦下，这里只拒绝。</summary>
     public ProviderProfile SetKey(string? name, string token)
@@ -211,6 +233,19 @@ internal sealed class ProviderStore(string path)
         {
             var snapshot = Load();
             Save(snapshot with { Default = profile.Name });
+        }
+
+        return Resolve(profile.Name);
+    }
+
+    /// <summary>切换识图供应商（0.5.0）。</summary>
+    public ProviderProfile SetVisionProvider(string name)
+    {
+        var profile = ResolveChat(name);
+        lock (_gate)
+        {
+            var snapshot = Load();
+            Save(snapshot with { Vision = profile.Name });
         }
 
         return Resolve(profile.Name);
@@ -315,7 +350,8 @@ internal sealed class ProviderStore(string path)
 
         return new Snapshot(
             string.IsNullOrWhiteSpace(document.Default) ? BuiltinDefaultProvider : document.Default,
-            entries);
+            entries,
+            string.IsNullOrWhiteSpace(document.Vision) ? BuiltinVisionProvider : document.Vision);
     }
 
     private void Save(Snapshot snapshot)
@@ -323,6 +359,7 @@ internal sealed class ProviderStore(string path)
         var document = new StoreDocument
         {
             Default = snapshot.Default,
+            Vision = snapshot.Vision,
             Providers = snapshot.Entries.ToDictionary(pair => pair.Key, pair => pair.Value),
         };
 
@@ -338,7 +375,7 @@ internal sealed class ProviderStore(string path)
 
     private sealed record ProviderDefaults(string BaseUrl, string Model, ProviderKind Kind = ProviderKind.Chat);
 
-    private sealed record Snapshot(string Default, IReadOnlyDictionary<string, StoredProvider> Entries)
+    private sealed record Snapshot(string Default, IReadOnlyDictionary<string, StoredProvider> Entries, string Vision = BuiltinVisionProvider)
     {
         public static Snapshot Empty { get; } = new(
             BuiltinDefaultProvider,
@@ -361,6 +398,10 @@ internal sealed class ProviderStore(string path)
     {
         [JsonPropertyName("default")]
         public string? Default { get; set; }
+
+        /// <summary>0.4 的库没有这一项，读出来是 null，按内置识图供应商。</summary>
+        [JsonPropertyName("vision")]
+        public string? Vision { get; set; }
 
         [JsonPropertyName("providers")]
         public Dictionary<string, StoredProvider>? Providers { get; set; }

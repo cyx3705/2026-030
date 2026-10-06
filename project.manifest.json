@@ -15,7 +15,7 @@
       "ai-module"
     ],
     "status": "active",
-    "version": "0.4.0",
+    "version": "0.5.0",
     "branch": "main"
   },
   "paths": {
@@ -35,7 +35,6 @@
       "z-Publish"
     ],
     "archiveRoots": [
-      "b-Office/history",
       "z-Publish/history"
     ],
     "releaseRoots": [
@@ -48,13 +47,7 @@
     ]
   },
   "documents": {
-    "center": "b-Office/文档中心.md",
-    "structure": "b-Office/文档中心.md",
-    "overview": "b-Office/current/项目概览.md",
-    "technicalContract": "b-Office/current/技术合同.md",
-    "decisions": "b-Office/current/有效决策.md",
-    "verification": "b-Office/current/验证合同.md",
-    "historyBoundary": "b-Office/history/历史资料说明.md"
+    "conventions": "b-Office/current/现行约定.md"
   },
   "commands": {
     "setup": null,
@@ -68,10 +61,10 @@
     "HistoryVulcan 6.0.0 或更新的发布快照：C:\\OneHistory\\HistoryClio\\2026-023-HistoryVulcan\\z-Publish",
     ".NET SDK 9（目标框架 net8.0）",
     "DeepSeek 开放平台：https://api.deepseek.com",
-    "博查 Web Search API：https://api.bochaai.com（apollo.chat.* web=true 时代模型搜索）"
+    "博查 Web Search API：https://api.bochaai.com（apollo.chat.* web=true 时代模型搜索）",
+    "阿里云百炼 DashScope OpenAI 兼容接口：https://dashscope.aliyuncs.com/compatible-mode/v1（images= 时的识图供应商 qwen）"
   ],
   "contextExclusions": [
-    "b-Office/history/**",
     "z-Publish/**",
     "**/bin/**",
     "**/obj/**",

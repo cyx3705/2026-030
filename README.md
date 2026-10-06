@@ -5,7 +5,7 @@
 ## 定位
 
 HistoryApollo 把 OpenAI 兼容的对话补全接口变成 HistoryVulcan 指令，首发内置 DeepSeek，可按需联网搜索（博查），
-每一轮往返实时写进控制台。
+可附本机图片交给识图模型（内置通义千问），每一轮往返实时写进控制台。
 
 - 它只做一件事——**把一次模型调用说清楚**。
 - 会话历史、提示词工程、重试编排和逐字流式输出都属于调用方，不在这里。
@@ -25,7 +25,7 @@ HistoryApollo 把 OpenAI 兼容的对话补全接口变成 HistoryVulcan 指令�
 
 | 类 | 指令 | 用途 |
 | --- | --- | --- |
-| `chat` | `apollo.chat.ask` / `send` | 单轮提问 / 完整消息数组；`web=true` 时模型自行决定是否联网 |
+| `chat` | `apollo.chat.ask` / `send` | 单轮提问 / 完整消息数组；`web=true` 时模型自行决定是否联网；`images=` 附图走识图供应商 |
 | `model` | `apollo.model.list` | 模型清单 |
 | `provider` | `apollo.provider.list` / `use` / `config` | 供应商、默认模型与接入点 |
 | `key` | `apollo.key.set` / `clear` | 密钥读写（回执只出掩码） |
@@ -34,9 +34,11 @@ HistoryApollo 把 OpenAI 兼容的对话补全接口变成 HistoryVulcan 指令�
 apollo.key.set token=<密钥> provider=deepseek
 apollo.chat.ask prompt=用一句话解释张量
 apollo.chat.ask prompt="CDQ2B20-10D 是哪个品牌的气缸" web=true
+apollo.key.set token=<密钥> provider=qwen
+apollo.chat.ask prompt=这张图纸是什么零件 images=D:\图纸.png
 ```
 
-参数读注册自描述：`diana.docs.read domain=apollo`（宿主 6.1.0 起没有消费文档）；返回载荷、密钥与失败语义见 [技术合同](./b-Office/current/技术合同.md)「对外约定」。
+参数读注册自描述：`diana.docs.read domain=apollo`（宿主 6.1.0 起没有消费文档）；返回载荷、密钥与取舍见 [现行约定](./b-Office/current/现行约定.md)。
 
 ## 入口
 
@@ -44,11 +46,7 @@ apollo.chat.ask prompt="CDQ2B20-10D 是哪个品牌的气缸" web=true
 | --- | --- |
 | [`AGENTS.md`](./AGENTS.md) | AI 工作合同：读取顺序、真值判定、边界 |
 | [`project.manifest.json`](./project.manifest.json) | 项目身份、活动目录、文档与命令 |
-| [文档中心](./b-Office/文档中心.md) | 文档索引与读取顺序 |
-| [项目概览](./b-Office/current/项目概览.md) | 目标、范围与状态 |
-| [技术合同](./b-Office/current/技术合同.md) | 现行需求与架构 |
-| [有效决策](./b-Office/current/有效决策.md) | 仍然有效的关键决策 |
-| [验证合同](./b-Office/current/验证合同.md) | 验证层级、命令与证据 |
+| [现行约定](./b-Office/current/现行约定.md) | 唯一的长期文档：真相在哪、取舍、真机才知道的、工程约定 |
 
 ## 目录
 
@@ -57,7 +55,7 @@ apollo.chat.ask prompt="CDQ2B20-10D 是哪个品牌的气缸" web=true
 | `b-Code/HistoryApollo/` | 模块源码、manifest 与 `eng/` 构建脚本 |
 | `b-Code/HistoryApollo.Tests/` | 自动验证 |
 | `b-Code/` | 项目合同检查 |
-| `b-Office/` | 项目文档：`current/` 现行合同、`history/` 只读归档 |
+| `b-Office/` | `current/现行约定.md`，唯一的长期文档 |
 | `z-Publish/` | 正式快照与 `history/` 归档，由宿主管线写入 |
 
 ## 构建与验证
@@ -79,7 +77,7 @@ powershell -NoProfile -ExecutionPolicy Bypass -File .\b-Code\Test-ProjectContrac
 ## 要点
 
 - 密钥只落在本机 `%AppData%\HistoryVulcan\ModuleData\HistoryApollo\providers.json`（宿主给的数据目录），或由环境变量提供（优先）：
-  DeepSeek 为 `APOLLO_DEEPSEEK_KEY` / `DEEPSEEK_API_KEY`，博查为 `APOLLO_BOCHA_KEY` / `BOCHA_API_KEY`。
+  DeepSeek 为 `APOLLO_DEEPSEEK_KEY` / `DEEPSEEK_API_KEY`，博查为 `APOLLO_BOCHA_KEY` / `BOCHA_API_KEY`，通义千问为 `APOLLO_QWEN_KEY` / `QWEN_API_KEY`。
 - **密钥不入库。** 项目合同检查会扫描全仓，拒绝任何形如 `sk-<长串>` 的真实密钥。
 - 嵌套调用的过程输出也逐轮进控制台；消费方不要再从载荷复述调用过程。
 

@@ -8,7 +8,15 @@ namespace HistoryApollo;
 /// <summary>一条对话消息。</summary>
 /// <param name="Role">system / user / assistant。</param>
 /// <param name="Content">消息正文。</param>
-internal sealed record ChatMessage(string Role, string Content);
+/// <param name="Images">
+/// 随这条消息附带的图片（0.5.0），已编码成 <c>data:</c> URL（<see cref="ChatImages"/>）。
+/// 有图片时请求里这条消息的 content 是 OpenAI 兼容的数组：一段文字 + 每张图一个 <c>image_url</c>。
+/// </param>
+internal sealed record ChatMessage(string Role, string Content, IReadOnlyList<string>? Images = null)
+{
+    /// <summary>带几张图。</summary>
+    public int ImageCount => Images?.Count ?? 0;
+}
 
 /// <summary>一次调用的可选项；未指定的项不进请求体，由服务端取自己的缺省值。</summary>
 internal sealed record ChatOptions
@@ -140,11 +148,12 @@ internal sealed class ChatClient : IDisposable
 
         var conversation = new JsonArray();
         foreach (var message in messages)
-            conversation.Add(new JsonObject { ["role"] = message.Role, ["content"] = message.Content });
+            conversation.Add(new JsonObject { ["role"] = message.Role, ["content"] = ContentOf(message) });
 
         var tag = $"#{Interlocked.Increment(ref _callSequence)}";
+        var images = messages.Sum(message => message.ImageCount);
         trace?.Report(
-            $"{tag} {provider.Name}/{model}{(options.WebSearch ? " 联网" : string.Empty)} 提问："
+            $"{tag} {provider.Name}/{model}{(options.WebSearch ? " 联网" : string.Empty)}{(images > 0 ? $" 附图 {images} 张" : string.Empty)} 提问："
             + Clip(OneLine(messages[^1].Content), MaxQuestionTraceLength));
 
         var searches = new List<SearchTrace>();
@@ -277,6 +286,21 @@ internal sealed class ChatClient : IDisposable
                 $"供应商 {provider.Name} 未配置密钥：先执行 apollo.key.set provider={provider.Name} token=<密钥>，"
                 + $"或设置环境变量 APOLLO_{provider.Name.ToUpperInvariant()}_KEY");
         }
+    }
+
+    /// <summary>
+    /// 一条消息的 content：没图就是字符串（与 0.4 完全一样）；有图是 OpenAI 兼容的数组——先文字、再逐张 <c>image_url</c>。
+    /// 通义千问、豆包、智谱的兼容接口都认这个形状；不认图片的模型（DeepSeek）会照收、但看不到图（实测只回「无法查看图片」），
+    /// 所以带图的请求默认改走识图供应商（<see cref="ProviderStore.ResolveVision"/>），不靠模型报错。
+    /// </summary>
+    private static JsonNode ContentOf(ChatMessage message)
+    {
+        if (message.ImageCount == 0)
+            return JsonValue.Create(message.Content)!;
+        var parts = new JsonArray { new JsonObject { ["type"] = "text", ["text"] = message.Content } };
+        foreach (var image in message.Images!)
+            parts.Add(new JsonObject { ["type"] = "image_url", ["image_url"] = new JsonObject { ["url"] = image } });
+        return parts;
     }
 
     private static JsonObject BuildBody(string model, JsonArray conversation, ChatOptions options)

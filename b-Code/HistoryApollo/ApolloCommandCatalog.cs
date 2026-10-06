@@ -17,7 +17,7 @@ internal static class ApolloCommandCatalog
                 Name = "apollo.chat.ask",
                 Domain = Domain,
                 CommandClass = "chat",
-                Summary = "向模型提一个问题并取回答复；web=true 时模型可按需联网搜索。",
+                Summary = "向模型提一个问题并取回答复；web=true 时模型可按需联网搜索，images= 附本机图片让识图模型看。",
                 Example = "apollo.chat.ask prompt=CDQ2B20-10D是哪个品牌的气缸 web=true",
                 Level = CommandLevel.Run,
                 // 不写本机状态，但会发出一次计费的外网请求，所以不声明 Readonly。
@@ -48,7 +48,7 @@ internal static class ApolloCommandCatalog
                 Name = "apollo.chat.send",
                 Domain = Domain,
                 CommandClass = "chat",
-                Summary = "按完整消息数组发起一次多轮对话调用；web=true 时模型可按需联网搜索。",
+                Summary = "按完整消息数组发起一次多轮对话调用；web=true 时模型可按需联网搜索，images= 附图到最后一条 user 消息。",
                 Example = "apollo.chat.send messages=[{\"role\":\"user\",\"content\":\"继续\"}]",
                 Level = CommandLevel.Run,
                 Readonly = false,
@@ -107,19 +107,20 @@ internal static class ApolloCommandCatalog
                 Name = "apollo.provider.list",
                 Domain = Domain,
                 CommandClass = "provider",
-                Summary = "列出已配置的供应商、默认模型和密钥来源（密钥只显示掩码）。",
+                Summary = "列出已配置的供应商、默认模型和密钥来源（密钥只显示掩码）；* 是默认供应商，「识图」是带图片调用默认走的那家。",
                 Example = "apollo.provider.list",
                 Level = CommandLevel.Run,
                 Readonly = true,
                 Handler = CommandDescriptor.Sync(_ =>
                 {
                     var current = store.DefaultProvider;
+                    var vision = store.VisionProvider;
                     var lines = new StringBuilder();
                     foreach (var profile in store.All())
                     {
                         lines.AppendLine(
                             $"{(profile.Name.Equals(current, StringComparison.OrdinalIgnoreCase) ? "*" : " ")} "
-                            + $"{profile.Name}  {(profile.Kind == ProviderKind.Search ? "类型=搜索" : "模型=" + profile.Model)}  接入点={profile.BaseUrl}  "
+                            + $"{profile.Name}{(profile.Name.Equals(vision, StringComparison.OrdinalIgnoreCase) ? "（识图）" : string.Empty)}  {(profile.Kind == ProviderKind.Search ? "类型=搜索" : "模型=" + profile.Model)}  接入点={profile.BaseUrl}  "
                             + $"密钥={ProviderStore.Mask(profile.ApiKey)}({profile.KeySource})");
                     }
 
@@ -133,8 +134,8 @@ internal static class ApolloCommandCatalog
                 Name = "apollo.provider.use",
                 Domain = Domain,
                 CommandClass = "provider",
-                Summary = "切换默认供应商。",
-                Example = "apollo.provider.use deepseek",
+                Summary = "切换默认供应商；vision=true 时改的是识图供应商（带图片的调用默认走它）。",
+                Example = "apollo.provider.use qwen vision=true",
                 Level = CommandLevel.Run,
                 Parameters =
                 [
@@ -145,9 +146,23 @@ internal static class ApolloCommandCatalog
                         Required = true,
                         Position = 0,
                     },
+                    new ParameterSpec
+                    {
+                        Name = "vision",
+                        Description = "true 改识图供应商（带 images= 且省略 provider 的调用走它）；省略或 false 改默认供应商。",
+                        Type = ParamType.Bool,
+                    },
                 ],
                 Handler = Guard(context =>
                 {
+                    if (context.GetBool("vision", false))
+                    {
+                        var vision = store.SetVisionProvider(context.RequireString("name"));
+                        return Task.FromResult(CommandResult.Ok(
+                            $"识图供应商已设为 {vision.Name}（模型 {vision.Model}）",
+                            DescribeProviders(store)));
+                    }
+
                     var profile = store.SetDefaultProvider(context.RequireString("name"));
                     return Task.FromResult(CommandResult.Ok(
                         $"默认供应商已设为 {profile.Name}（模型 {profile.Model}）",
@@ -276,7 +291,13 @@ internal static class ApolloCommandCatalog
         CommandContext context,
         IReadOnlyList<ChatMessage> messages)
     {
-        var profile = store.ResolveChat(context.GetString("provider"));
+        var images = ChatImages.Load(context.GetString("images"));
+        messages = ChatImages.Attach(messages, images);
+
+        // 带图片且没写 provider 时走识图供应商（0.5.0）：默认供应商（DeepSeek）收图片但看不到。
+        var profile = images.Count > 0
+            ? store.ResolveVision(context.GetString("provider"))
+            : store.ResolveChat(context.GetString("provider"));
         var jsonOutput = context.GetBool("json", false);
         var options = new ChatOptions
         {
@@ -320,6 +341,11 @@ internal static class ApolloCommandCatalog
             Description = "本次使用的模型；省略时用供应商默认模型。",
         },
         ProviderParameter(null),
+        new ParameterSpec
+        {
+            Name = "images",
+            Description = ChatImages.Description,
+        },
         new ParameterSpec
         {
             Name = "temperature",
@@ -369,6 +395,7 @@ internal static class ApolloCommandCatalog
             new
             {
                 @default = store.DefaultProvider,
+                vision = store.VisionProvider,
                 providers = store.All().Select(profile => new
                 {
                     name = profile.Name,
