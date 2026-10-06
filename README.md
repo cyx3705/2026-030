@@ -38,7 +38,7 @@ apollo.key.set token=<密钥> provider=qwen
 apollo.chat.ask prompt=这张图纸是什么零件 images=D:\图纸.png
 ```
 
-参数读注册自描述：`diana.docs.read domain=apollo`（宿主 6.1.0 起没有消费文档）；返回载荷、密钥与取舍见 [现行约定](./b-Office/current/现行约定.md)。
+参数读注册自描述：`diana.docs.read domain=apollo`（宿主 6.1.0 起没有消费文档）；返回载荷、密钥与取舍见 [现行约定](./b-Office/现行约定.md)。
 
 ## 入口
 
@@ -46,7 +46,7 @@ apollo.chat.ask prompt=这张图纸是什么零件 images=D:\图纸.png
 | --- | --- |
 | [`AGENTS.md`](./AGENTS.md) | AI 工作合同：读取顺序、真值判定、边界 |
 | [`project.manifest.json`](./project.manifest.json) | 项目身份、活动目录、文档与命令 |
-| [现行约定](./b-Office/current/现行约定.md) | 唯一的长期文档：真相在哪、取舍、真机才知道的、工程约定 |
+| [现行约定](./b-Office/现行约定.md) | 唯一的长期文档：真相在哪、取舍、真机才知道的、工程约定 |
 
 ## 目录
 

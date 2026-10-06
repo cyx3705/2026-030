@@ -20,7 +20,7 @@
   },
   "paths": {
     "activeRoots": [
-      "b-Office/current",
+      "b-Office",
       "b-Code/HistoryApollo",
       "b-Code/HistoryApollo.Tests",
       "b-Code"
@@ -47,7 +47,7 @@
     ]
   },
   "documents": {
-    "conventions": "b-Office/current/现行约定.md"
+    "conventions": "b-Office/现行约定.md"
   },
   "commands": {
     "setup": null,
