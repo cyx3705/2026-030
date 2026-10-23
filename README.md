@@ -83,6 +83,11 @@ powershell -NoProfile -ExecutionPolicy Bypass -File .\b-Code\Test-ProjectContrac
 
 ## 保留内容
 
+### logo与作者
+
+- 作者：pinavia
+- ![logo](./Logo.png)
+
 ### 学习许可与权利保留
 
 - 本项目允许个人、学校和研究者进行非商业性的学习、研究和引用。
