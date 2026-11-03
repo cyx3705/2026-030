@@ -2,23 +2,23 @@ using System.Net.Http.Headers;
 using System.Text;
 using System.Text.Json;
 
-namespace HistoryApollo;
+namespace Ratio;
 
 /// <summary>
 /// 对话补全与联网搜索共用的一次 HTTP 往返：超时、认证头与错误翻译。
 /// </summary>
 /// <remarks>
-/// 失败一律翻译成 <see cref="ApolloRemoteException"/>，消息里带着服务端给的那句原因。
+/// 失败一律翻译成 <see cref="RatioRemoteException"/>，消息里带着服务端给的那句原因。
 /// 两类远端各写一份的话，「超时」「不可达」的措辞迟早会分家，调用方就得认两套说法。
 /// </remarks>
-internal static class ApolloHttp
+internal static class RatioHttp
 {
     public static async Task<string> SendAsync(
         HttpClient http,
         string serviceName,
         HttpMethod method,
         string url,
-        string apiKey,
+        string? apiKey,
         string? json,
         int timeoutSeconds,
         CancellationToken cancellation)
@@ -28,7 +28,9 @@ internal static class ApolloHttp
         timeout.CancelAfter(TimeSpan.FromSeconds(seconds));
 
         using var request = new HttpRequestMessage(method, url);
-        request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", apiKey);
+        // 本机服务没有密钥：不带认证头，而不是带一个空的 Bearer。
+        if (!string.IsNullOrWhiteSpace(apiKey))
+            request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", apiKey);
         if (json != null)
             request.Content = new StringContent(json, Encoding.UTF8, "application/json");
 
@@ -39,18 +41,18 @@ internal static class ApolloHttp
         }
         catch (OperationCanceledException) when (!cancellation.IsCancellationRequested)
         {
-            throw new ApolloRemoteException($"{serviceName} 请求超时（{seconds}s）");
+            throw new RatioRemoteException($"{serviceName} 请求超时（{seconds}s）");
         }
         catch (HttpRequestException ex)
         {
-            throw new ApolloRemoteException($"{serviceName} 不可达：{ex.Message}");
+            throw new RatioRemoteException($"{serviceName} 不可达：{ex.Message}");
         }
 
         using (response)
         {
             var text = await response.Content.ReadAsStringAsync(timeout.Token).ConfigureAwait(false);
             if (!response.IsSuccessStatusCode)
-                throw new ApolloRemoteException($"{serviceName} 返回 {(int)response.StatusCode}：{DescribeError(text)}");
+                throw new RatioRemoteException($"{serviceName} 返回 {(int)response.StatusCode}：{DescribeError(text)}");
             return text;
         }
     }

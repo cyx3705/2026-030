@@ -1,5 +1,5 @@
 <Project Sdk="Microsoft.NET.Sdk">
-  <Import Project="HistoryApolloVersion.props" />
+  <Import Project="RatioVersion.props" />
 
   <PropertyGroup>
     <!--
@@ -10,8 +10,8 @@
     <Nullable>enable</Nullable>
     <ImplicitUsings>enable</ImplicitUsings>
     <TreatWarningsAsErrors>true</TreatWarningsAsErrors>
-    <AssemblyName>HistoryApollo</AssemblyName>
-    <RootNamespace>HistoryApollo</RootNamespace>
+    <AssemblyName>Ratio</AssemblyName>
+    <RootNamespace>Ratio</RootNamespace>
     <GenerateDocumentationFile>true</GenerateDocumentationFile>
     <NoWarn>$(NoWarn);CS1591</NoWarn>
     <DefaultItemExcludes>$(DefaultItemExcludes);**\bin\**;**\obj\**</DefaultItemExcludes>

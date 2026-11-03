@@ -1,7 +1,7 @@
 using System.Reflection;
 using BaseVariable;
 
-namespace HistoryApollo;
+namespace Ratio;
 
 /// <summary>
 /// 模块身份。宿主按**全名**鸭子类型识别 <c>BaseVariable.ModuleInfoBase</c> 的公开非抽象子类，
@@ -13,12 +13,12 @@ public sealed class ModuleInfo : ModuleInfoBase
     /// 必须显式覆盖：缺省值是程序集名，而它同时是**指令域**。
     /// 程序集名与域一旦分家，域就会跟着程序集名跑。
     /// </summary>
-    public override string ModuleName => "HistoryApollo";
+    public override string ModuleName => "Ratio";
 
     /// <summary>指令域前缀。</summary>
-    public string CommandPrefix => "apollo";
+    public string CommandPrefix => "ratio";
 
-    public override string Description => "模型调用：把 DeepSeek 等 OpenAI 兼容模型接成宿主指令";
+    public override string Description => "推理资源：本机推理服务与 DeepSeek 等远端模型接成宿主指令";
 
     public override string Author => "OneHistory";
 

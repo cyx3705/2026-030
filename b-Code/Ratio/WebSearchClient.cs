@@ -1,7 +1,7 @@
 using System.Text.Json;
 using System.Text.Json.Nodes;
 
-namespace HistoryApollo;
+namespace Ratio;
 
 /// <summary>一条网页搜索结果。</summary>
 /// <param name="Title">网页标题；服务端没给时退回链接。</param>
@@ -15,8 +15,8 @@ internal sealed record WebSearchHit(string Title, string Url, string? SiteName, 
 internal interface IWebSearch
 {
     /// <summary>搜一次，拿回最多 <paramref name="count"/> 条结果。</summary>
-    /// <exception cref="ApolloInputException">搜索服务没配密钥——这是配置错，整次调用应当失败。</exception>
-    /// <exception cref="ApolloRemoteException">远端拒绝、超时或不可达——只是这一次搜索失败。</exception>
+    /// <exception cref="RatioInputException">搜索服务没配密钥——这是配置错，整次调用应当失败。</exception>
+    /// <exception cref="RatioRemoteException">远端拒绝、超时或不可达——只是这一次搜索失败。</exception>
     Task<IReadOnlyList<WebSearchHit>> SearchAsync(
         string query,
         int count,
@@ -29,7 +29,7 @@ internal interface IWebSearch
 /// </summary>
 /// <remarks>
 /// 接入点与密钥和对话供应商放在同一个 <see cref="ProviderStore"/> 里，名字固定为
-/// <see cref="ProviderStore.SearchProvider"/>。换钥匙仍是 <c>apollo.key.set provider=bocha</c>，
+/// <see cref="ProviderStore.SearchProvider"/>。换钥匙仍是 <c>ratio.key.set provider=bocha</c>，
 /// 不另开一套密钥库，也就不必另写一套脱敏与环境变量规则。
 /// </remarks>
 internal sealed class WebSearchClient : IWebSearch, IDisposable
@@ -60,14 +60,14 @@ internal sealed class WebSearchClient : IWebSearch, IDisposable
         CancellationToken cancellation)
     {
         if (string.IsNullOrWhiteSpace(query))
-            throw new ApolloInputException("搜索关键词不能为空");
+            throw new RatioInputException("搜索关键词不能为空");
 
         var profile = _store.Resolve(ProviderStore.SearchProvider);
         if (!profile.HasKey)
         {
-            throw new ApolloInputException(
-                $"搜索服务 {profile.Name} 未配置密钥：先执行 apollo.key.set provider={profile.Name} token=<密钥>，"
-                + $"或设置环境变量 APOLLO_{profile.Name.ToUpperInvariant()}_KEY");
+            throw new RatioInputException(
+                $"搜索服务 {profile.Name} 未配置密钥：先执行 ratio.key.set provider={profile.Name} token=<密钥>，"
+                + $"或设置环境变量 RATIO_{profile.Name.ToUpperInvariant()}_KEY");
         }
 
         var body = new JsonObject
@@ -78,7 +78,7 @@ internal sealed class WebSearchClient : IWebSearch, IDisposable
             ["count"] = Math.Clamp(count, 1, 50),
         };
 
-        var payload = await ApolloHttp.SendAsync(
+        var payload = await RatioHttp.SendAsync(
             _http,
             profile.Name,
             HttpMethod.Post,
@@ -101,18 +101,18 @@ internal sealed class WebSearchClient : IWebSearch, IDisposable
         }
         catch (JsonException ex)
         {
-            throw new ApolloRemoteException($"{serviceName} 返回的不是 JSON：{ex.Message}");
+            throw new RatioRemoteException($"{serviceName} 返回的不是 JSON：{ex.Message}");
         }
 
         if (root is not JsonObject document)
-            throw new ApolloRemoteException($"{serviceName} 返回的不是 JSON 对象");
+            throw new RatioRemoteException($"{serviceName} 返回的不是 JSON 对象");
 
         // HTTP 200 里仍可能装着业务错误（{"code":403,"msg":"余额不足"}）。
         // 把它当成「没有结果」，模型就会一本正经地回答「查不到」，而真正该看的是那句余额不足。
         if (document["code"] is { } code && !IsOk(code))
         {
-            throw new ApolloRemoteException(
-                $"{serviceName} 返回 {code.ToJsonString().Trim('"')}：{ApolloHttp.DescribeError(payload)}");
+            throw new RatioRemoteException(
+                $"{serviceName} 返回 {code.ToJsonString().Trim('"')}：{RatioHttp.DescribeError(payload)}");
         }
 
         if (document["data"] is not JsonObject data

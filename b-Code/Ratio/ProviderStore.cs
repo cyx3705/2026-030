@@ -1,7 +1,7 @@
 using System.Text.Json;
 using System.Text.Json.Serialization;
 
-namespace HistoryApollo;
+namespace Ratio;
 
 /// <summary>一个已解析好的供应商档案：接入点、默认模型和当次可用的密钥。</summary>
 /// <param name="Name">供应商标识（小写）。</param>
@@ -20,6 +20,15 @@ internal sealed record ProviderProfile(
 {
     /// <summary>是否已经拿得到密钥。</summary>
     public bool HasKey => !string.IsNullOrWhiteSpace(ApiKey);
+
+    /// <summary>
+    /// 调用前是否必须有密钥。接入点在本机回环地址上（本地推理服务、自建中转）的不要求：
+    /// 它们本来就不验钥，硬要一把只会逼人填个假值。
+    /// </summary>
+    public bool KeyRequired => !IsLoopback(BaseUrl);
+
+    private static bool IsLoopback(string baseUrl)
+        => Uri.TryCreate(baseUrl, UriKind.Absolute, out var uri) && uri.IsLoopback;
 }
 
 /// <summary>一条供应商档案服务于哪一侧。</summary>
@@ -33,7 +42,7 @@ internal enum ProviderKind
 }
 
 /// <summary>配置或输入不满足调用前提；这类错误直接变成失败回执，不是异常堆栈。</summary>
-internal sealed class ApolloInputException(string message) : Exception(message);
+internal sealed class RatioInputException(string message) : Exception(message);
 
 /// <summary>
 /// 供应商配置与密钥库。
@@ -61,12 +70,18 @@ internal sealed class ProviderStore(string path)
             // 0.5.0：识图。DeepSeek 收图片但看不到（实测只回「无法查看图片」），带图的请求默认走这家（用户选的通义千问）。
             [BuiltinVisionProvider] = new("https://dashscope.aliyuncs.com/compatible-mode/v1", "qwen-vl-max"),
             [SearchProvider] = new("https://api.bochaai.com", string.Empty, ProviderKind.Search),
+            // 0.6.0：本机统一推理服务（F:\LinuxModuleServices，WSL 里一个 llama-server 加 C++ 代理）。
+            // 不写默认模型：服务同一时间只装一个模型，调用时取它当前装着的那个（见 ChatClient.ResolveModelAsync）。
+            [LocalProvider] = new("http://127.0.0.1:11435/v1", string.Empty),
         };
 
     private const string BuiltinDefaultProvider = "deepseek";
 
     /// <summary>没设过识图供应商时，带图片的请求走这家。</summary>
     public const string BuiltinVisionProvider = "qwen";
+
+    /// <summary>本机统一推理服务的供应商名；<c>ratio.local.*</c> 管它的启停与换模。</summary>
+    public const string LocalProvider = "local";
 
     /// <summary><c>web=true</c> 时代模型执行搜索的服务名。</summary>
     public const string SearchProvider = "bocha";
@@ -110,7 +125,7 @@ internal sealed class ProviderStore(string path)
     }
 
     /// <summary>解析一个供应商档案；<paramref name="name"/> 为空时取默认供应商。</summary>
-    /// <exception cref="ApolloInputException">名称既不在库里也不是内置供应商。</exception>
+    /// <exception cref="RatioInputException">名称既不在库里也不是内置供应商。</exception>
     public ProviderProfile Resolve(string? name)
     {
         lock (_gate)
@@ -122,7 +137,7 @@ internal sealed class ProviderStore(string path)
                 var known = string.Join(", ", snapshot.Entries.Keys.Concat(Builtin.Keys)
                     .Distinct(StringComparer.OrdinalIgnoreCase)
                     .OrderBy(item => item, StringComparer.OrdinalIgnoreCase));
-                throw new ApolloInputException($"未知供应商 {resolved}；已知：{known}");
+                throw new RatioInputException($"未知供应商 {resolved}；已知：{known}");
             }
 
             return Resolve(snapshot, resolved);
@@ -130,14 +145,14 @@ internal sealed class ProviderStore(string path)
     }
 
     /// <summary>解析一个<b>对话</b>供应商；名字指向搜索服务时拒绝。</summary>
-    /// <exception cref="ApolloInputException">名称未知，或它是搜索服务。</exception>
+    /// <exception cref="RatioInputException">名称未知，或它是搜索服务。</exception>
     public ProviderProfile ResolveChat(string? name)
     {
         var profile = Resolve(name);
         if (profile.Kind == ProviderKind.Search)
         {
-            throw new ApolloInputException(
-                $"{profile.Name} 是搜索服务，不能用来对话；要让模型联网，在 apollo.chat.ask 上加 web=true");
+            throw new RatioInputException(
+                $"{profile.Name} 是搜索服务，不能用来对话；要让模型联网，在 ratio.chat.ask 上加 web=true");
         }
 
         return profile;
@@ -154,9 +169,9 @@ internal sealed class ProviderStore(string path)
     public ProviderProfile SetKey(string? name, string token)
     {
         if (string.IsNullOrWhiteSpace(token))
-            throw new ApolloInputException("密钥不能为空");
+            throw new RatioInputException("密钥不能为空");
         if (token.Any(char.IsWhiteSpace))
-            throw new ApolloInputException("密钥不能含空白字符；请检查是否粘贴了多余的引号或换行");
+            throw new RatioInputException("密钥不能含空白字符；请检查是否粘贴了多余的引号或换行");
 
         return Mutate(name, entry => entry with { ApiKey = token.Trim() });
     }
@@ -168,7 +183,7 @@ internal sealed class ProviderStore(string path)
     public ProviderProfile SetModel(string? name, string model)
     {
         if (string.IsNullOrWhiteSpace(model))
-            throw new ApolloInputException("模型名不能为空");
+            throw new RatioInputException("模型名不能为空");
         return Mutate(name, entry => entry with { Model = model.Trim() });
     }
 
@@ -184,7 +199,7 @@ internal sealed class ProviderStore(string path)
     {
         var normalized = (name ?? string.Empty).Trim().ToLowerInvariant();
         if (normalized.Length == 0 || !normalized.All(character => char.IsAsciiLetterOrDigit(character) || character is '-' or '_'))
-            throw new ApolloInputException($"供应商名只能是字母、数字、连字符或下划线：{name}");
+            throw new RatioInputException($"供应商名只能是字母、数字、连字符或下划线：{name}");
 
         var entry = new StoredProvider { BaseUrl = NormalizeBaseUrl(baseUrl), Model = model?.Trim() };
         lock (_gate)
@@ -219,7 +234,7 @@ internal sealed class ProviderStore(string path)
         if (!Uri.TryCreate(baseUrl, UriKind.Absolute, out var uri)
             || (uri.Scheme != Uri.UriSchemeHttp && uri.Scheme != Uri.UriSchemeHttps))
         {
-            throw new ApolloInputException($"接入点必须是 http/https 绝对地址：{baseUrl}");
+            throw new RatioInputException($"接入点必须是 http/https 绝对地址：{baseUrl}");
         }
 
         return baseUrl.Trim().TrimEnd('/');
@@ -299,13 +314,13 @@ internal sealed class ProviderStore(string path)
     }
 
     /// <summary>
-    /// 环境变量密钥：先看模块自己的 <c>APOLLO_&lt;供应商&gt;_KEY</c>，
+    /// 环境变量密钥：先看模块自己的 <c>RATIO_&lt;供应商&gt;_KEY</c>，
     /// 再看供应商官方惯例的 <c>&lt;供应商&gt;_API_KEY</c>。
     /// </summary>
     private static (string? Key, string Source) ReadEnvironmentKey(string name)
     {
         var upper = name.ToUpperInvariant();
-        foreach (var variable in new[] { $"APOLLO_{upper}_KEY", $"{upper}_API_KEY" })
+        foreach (var variable in new[] { $"RATIO_{upper}_KEY", $"{upper}_API_KEY" })
         {
             var value = Environment.GetEnvironmentVariable(variable);
             if (!string.IsNullOrWhiteSpace(value))
@@ -330,7 +345,7 @@ internal sealed class ProviderStore(string path)
         catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or JsonException)
         {
             // 库读不出来不该让整个模块失能：退回内置默认，调用时再以「密钥未配置」失败。
-            ApolloRuntime.Log("store", $"配置库不可读，本次使用内置默认：{ex.Message}");
+            RatioRuntime.Log("store", $"配置库不可读，本次使用内置默认：{ex.Message}");
             snapshot = Snapshot.Empty;
         }
 

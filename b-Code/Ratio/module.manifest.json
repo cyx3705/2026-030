@@ -1,0 +1,12 @@
+{
+  "schemaVersion": 1,
+  "type": "HistoryVulcan.Module",
+  "name": "Ratio",
+  "version": "0.6.0",
+  "description": "推理资源：本机推理服务与 DeepSeek 等远端模型接成宿主指令",
+  "artifact": "Ratio.dll",
+  "docs": "Ratio.xml",
+  "mcpExposure": "standard",
+  "ui": false,
+  "pinned": false
+}

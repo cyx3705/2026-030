@@ -2,23 +2,23 @@ using System.Text;
 using System.Text.Json;
 using HistoryVulcan.Core.Commands;
 
-namespace HistoryApollo;
+namespace Ratio;
 
-/// <summary>Apollo 的全部指令：一次调用、一次配置，没有第三类。</summary>
-internal static class ApolloCommandCatalog
+/// <summary>Ratio 的全部指令：一次调用、一次配置，没有第三类。</summary>
+internal static class RatioCommandCatalog
 {
-    private const string Domain = "apollo";
+    private const string Domain = "ratio";
 
     public static void Register(ICommandRegistrar registry, ProviderStore store, ChatClient client, IWebSearch search)
     {
         registry.Register(
             new CommandDescriptor
             {
-                Name = "apollo.chat.ask",
+                Name = "ratio.chat.ask",
                 Domain = Domain,
                 CommandClass = "chat",
                 Summary = "向模型提一个问题并取回答复；web=true 时模型可按需联网搜索，images= 附本机图片让识图模型看。",
-                Example = "apollo.chat.ask prompt=CDQ2B20-10D是哪个品牌的气缸 web=true",
+                Example = "ratio.chat.ask prompt=CDQ2B20-10D是哪个品牌的气缸 web=true",
                 Level = CommandLevel.Run,
                 // 不写本机状态，但会发出一次计费的外网请求，所以不声明 Readonly。
                 Readonly = false,
@@ -45,11 +45,11 @@ internal static class ApolloCommandCatalog
         registry.Register(
             new CommandDescriptor
             {
-                Name = "apollo.chat.send",
+                Name = "ratio.chat.send",
                 Domain = Domain,
                 CommandClass = "chat",
                 Summary = "按完整消息数组发起一次多轮对话调用；web=true 时模型可按需联网搜索，images= 附图到最后一条 user 消息。",
-                Example = "apollo.chat.send messages=[{\"role\":\"user\",\"content\":\"继续\"}]",
+                Example = "ratio.chat.send messages=[{\"role\":\"user\",\"content\":\"继续\"}]",
                 Level = CommandLevel.Run,
                 Readonly = false,
                 Parameters =
@@ -73,11 +73,11 @@ internal static class ApolloCommandCatalog
         registry.Register(
             new CommandDescriptor
             {
-                Name = "apollo.model.list",
+                Name = "ratio.model.list",
                 Domain = Domain,
                 CommandClass = "model",
                 Summary = "列出供应商当前可用的模型。",
-                Example = "apollo.model.list provider=deepseek",
+                Example = "ratio.model.list provider=deepseek",
                 Level = CommandLevel.Run,
                 Readonly = true,
                 Parameters =
@@ -104,11 +104,11 @@ internal static class ApolloCommandCatalog
         registry.Register(
             new CommandDescriptor
             {
-                Name = "apollo.provider.list",
+                Name = "ratio.provider.list",
                 Domain = Domain,
                 CommandClass = "provider",
                 Summary = "列出已配置的供应商、默认模型和密钥来源（密钥只显示掩码）；* 是默认供应商，「识图」是带图片调用默认走的那家。",
-                Example = "apollo.provider.list",
+                Example = "ratio.provider.list",
                 Level = CommandLevel.Run,
                 Readonly = true,
                 Handler = CommandDescriptor.Sync(_ =>
@@ -131,11 +131,11 @@ internal static class ApolloCommandCatalog
         registry.Register(
             new CommandDescriptor
             {
-                Name = "apollo.provider.use",
+                Name = "ratio.provider.use",
                 Domain = Domain,
                 CommandClass = "provider",
                 Summary = "切换默认供应商；vision=true 时改的是识图供应商（带图片的调用默认走它）。",
-                Example = "apollo.provider.use qwen vision=true",
+                Example = "ratio.provider.use qwen vision=true",
                 Level = CommandLevel.Run,
                 Parameters =
                 [
@@ -173,11 +173,11 @@ internal static class ApolloCommandCatalog
         registry.Register(
             new CommandDescriptor
             {
-                Name = "apollo.provider.config",
+                Name = "ratio.provider.config",
                 Domain = Domain,
                 CommandClass = "provider",
                 Summary = "设置供应商的默认模型或接入点；给出 baseurl 时可登记一家新供应商。",
-                Example = "apollo.provider.config provider=deepseek model=deepseek-reasoner",
+                Example = "ratio.provider.config provider=deepseek model=deepseek-reasoner",
                 Level = CommandLevel.Run,
                 Parameters =
                 [
@@ -200,7 +200,7 @@ internal static class ApolloCommandCatalog
                     var model = context.GetString("model");
                     var baseUrl = context.GetString("baseurl");
                     if (string.IsNullOrWhiteSpace(model) && string.IsNullOrWhiteSpace(baseUrl))
-                        throw new ApolloInputException("至少要给出 model= 或 baseurl= 之一");
+                        throw new RatioInputException("至少要给出 model= 或 baseurl= 之一");
 
                     ProviderProfile profile;
                     if (!store.Knows(provider))
@@ -230,11 +230,11 @@ internal static class ApolloCommandCatalog
         registry.Register(
             new CommandDescriptor
             {
-                Name = "apollo.key.set",
+                Name = "ratio.key.set",
                 Domain = Domain,
                 CommandClass = "key",
                 Summary = "写入供应商密钥，只存在本机模块数据目录，回执与日志一律掩码。",
-                Example = "apollo.key.set token=<密钥> provider=deepseek",
+                Example = "ratio.key.set token=<密钥> provider=deepseek",
                 Level = CommandLevel.Run,
                 Parameters =
                 [
@@ -252,7 +252,7 @@ internal static class ApolloCommandCatalog
                 Handler = Guard(context =>
                 {
                     var profile = store.SetKey(context.GetString("provider"), context.RequireString("token"));
-                    ApolloRuntime.Log("key", $"{profile.Name} 密钥已更新：{ProviderStore.Mask(profile.ApiKey)}");
+                    RatioRuntime.Log("key", $"{profile.Name} 密钥已更新：{ProviderStore.Mask(profile.ApiKey)}");
                     var note = profile.KeySource.StartsWith("env:", StringComparison.Ordinal)
                         ? $"；注意 {profile.KeySource} 仍然优先生效"
                         : string.Empty;
@@ -264,11 +264,11 @@ internal static class ApolloCommandCatalog
         registry.Register(
             new CommandDescriptor
             {
-                Name = "apollo.key.clear",
+                Name = "ratio.key.clear",
                 Domain = Domain,
                 CommandClass = "key",
                 Summary = "删除本机保存的供应商密钥。",
-                Example = "apollo.key.clear provider=deepseek",
+                Example = "ratio.key.clear provider=deepseek",
                 Level = CommandLevel.Ask,
                 ConfirmPrompt = context =>
                     $"确认删除 {context.GetString("provider") ?? "默认"} 供应商保存的密钥？删除后需要重新提供密钥。",
@@ -318,7 +318,7 @@ internal static class ApolloCommandCatalog
         var searched = outcome.SearchCount == 0
             ? string.Empty
             : $" 搜索 {outcome.SearchCount} 次：{string.Join(" | ", outcome.Searches!.Select(trace => trace.Query))}";
-        ApolloRuntime.Log(
+        RatioRuntime.Log(
             "chat",
             $"{outcome.Provider}/{outcome.Model} {outcome.TotalTokens} tokens {outcome.ElapsedMilliseconds}ms{searched}");
 
@@ -333,7 +333,7 @@ internal static class ApolloCommandCatalog
         new ParameterSpec
         {
             Name = "system",
-            Description = "系统提示；apollo.chat.send 忽略本项，请直接放进 messages。",
+            Description = "系统提示；ratio.chat.send 忽略本项，请直接放进 messages。",
         },
         new ParameterSpec
         {
@@ -424,13 +424,13 @@ internal static class ApolloCommandCatalog
             {
                 return await handler(context).ConfigureAwait(false);
             }
-            catch (ApolloInputException ex)
+            catch (RatioInputException ex)
             {
                 return CommandResult.Fail(ex.Message);
             }
-            catch (ApolloRemoteException ex)
+            catch (RatioRemoteException ex)
             {
-                ApolloRuntime.Log("chat", $"调用失败：{ex.Message}");
+                RatioRuntime.Log("chat", $"调用失败：{ex.Message}");
                 return CommandResult.Fail(ex.Message);
             }
         };

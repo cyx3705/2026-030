@@ -1,13 +1,15 @@
-# HistoryApollo
+# Ratio
 
-> 模型调用模块：把 OpenAI 兼容的对话补全接成宿主指令
+> 推理资源模块：本机推理服务与远端模型统一接成宿主指令
 
 ## 定位
 
-HistoryApollo 把 OpenAI 兼容的对话补全接口变成 HistoryVulcan 指令，首发内置 DeepSeek，可按需联网搜索（博查），
-可附本机图片交给识图模型（内置通义千问），每一轮往返实时写进控制台。
+Ratio（拉丁语「推理、理性」；原名 HistoryApollo，0.6.0 改名）把本机与远端的推理资源变成 HistoryVulcan 指令：
+本机统一推理服务（`F:\LinuxModuleServices`，WSL 里的 llama-server 加 C++ 代理）是供应商 `local`，免密钥，
+启停与换模走 `ratio.local.*`；远端内置 DeepSeek，可按需联网搜索（博查），可附本机图片交给识图模型（内置通义千问）。
+每一轮往返实时写进控制台。
 
-- 它只做一件事——**把一次模型调用说清楚**。
+- 它只做一件事——**把一次模型调用说清楚**，外加本机推理服务的状态、启停与换模。
 - 会话历史、提示词工程、重试编排和逐字流式输出都属于调用方，不在这里。
 
 ## 概况
@@ -16,29 +18,33 @@ HistoryApollo 把 OpenAI 兼容的对话补全接口变成 HistoryVulcan 指令�
 | --- | --- |
 | 编号 | `2026-030` |
 | 角色 | 宿主模块（`kind=module`） |
-| 指令域 | `apollo` |
+| 指令域 | `ratio` |
 | 界面 | 无（`ui: false`） |
 | MCP 投影 | `standard` |
-| 版本与宿主下限 | [`HistoryApolloVersion.props`](./b-Code/HistoryApollo/HistoryApolloVersion.props) |
+| 版本与宿主下限 | [`RatioVersion.props`](./b-Code/Ratio/RatioVersion.props) |
 
 ## 能力
 
 | 类 | 指令 | 用途 |
 | --- | --- | --- |
-| `chat` | `apollo.chat.ask` / `send` | 单轮提问 / 完整消息数组；`web=true` 时模型自行决定是否联网；`images=` 附图走识图供应商 |
-| `model` | `apollo.model.list` | 模型清单 |
-| `provider` | `apollo.provider.list` / `use` / `config` | 供应商、默认模型与接入点 |
-| `key` | `apollo.key.set` / `clear` | 密钥读写（回执只出掩码） |
+| `chat` | `ratio.chat.ask` / `send` | 单轮提问 / 完整消息数组；`web=true` 时模型自行决定是否联网；`images=` 附图走识图供应商 |
+| `model` | `ratio.model.list` | 模型清单 |
+| `provider` | `ratio.provider.list` / `use` / `config` | 供应商、默认模型与接入点 |
+| `key` | `ratio.key.set` / `clear` | 密钥读写（回执只出掩码） |
+| `local` | `ratio.local.status` / `start` / `stop` / `use` | 本机推理服务：状态与可切换模型 / 启动 / 停止（先存 KV 缓存）/ 换模 |
 
 ```
-apollo.key.set token=<密钥> provider=deepseek
-apollo.chat.ask prompt=用一句话解释张量
-apollo.chat.ask prompt="CDQ2B20-10D 是哪个品牌的气缸" web=true
-apollo.key.set token=<密钥> provider=qwen
-apollo.chat.ask prompt=这张图纸是什么零件 images=D:\图纸.png
+ratio.local.status
+ratio.local.use qwen3.5:35b-a3b-q4_K_M
+ratio.chat.ask prompt=用一句话解释张量 provider=local
+ratio.key.set token=<密钥> provider=deepseek
+ratio.chat.ask prompt=用一句话解释张量
+ratio.chat.ask prompt="CDQ2B20-10D 是哪个品牌的气缸" web=true
+ratio.key.set token=<密钥> provider=qwen
+ratio.chat.ask prompt=这张图纸是什么零件 images=D:\图纸.png
 ```
 
-参数读注册自描述：`diana.docs.read domain=apollo`（宿主 6.1.0 起没有消费文档）；返回载荷、密钥与取舍见 [现行约定](./b-Office/现行约定.md)。
+参数读注册自描述：`diana.docs.read domain=ratio`（宿主 6.1.0 起没有消费文档）；返回载荷、密钥与取舍见 [现行约定](./b-Office/现行约定.md)。
 
 ## 入口
 
@@ -52,8 +58,8 @@ apollo.chat.ask prompt=这张图纸是什么零件 images=D:\图纸.png
 
 | 路径 | 职责 |
 | --- | --- |
-| `b-Code/HistoryApollo/` | 模块源码、manifest 与 `eng/` 构建脚本 |
-| `b-Code/HistoryApollo.Tests/` | 自动验证 |
+| `b-Code/Ratio/` | 模块源码、manifest 与 `eng/` 构建脚本 |
+| `b-Code/Ratio.Tests/` | 自动验证 |
 | `b-Code/` | 项目合同检查 |
 | `b-Office/` | `current/现行约定.md`，唯一的长期文档 |
 | `z-Publish/` | 正式快照与 `history/` 归档，由宿主管线写入 |
@@ -61,23 +67,25 @@ apollo.chat.ask prompt=这张图纸是什么零件 images=D:\图纸.png
 ## 构建与验证
 
 ```powershell
-dotnet build .\b-Code\HistoryApollo\HistoryApollo.csproj -c Release -p:NuGetAudit=false
-dotnet run --project .\b-Code\HistoryApollo.Tests\HistoryApollo.Tests.csproj -c Release -p:NuGetAudit=false
+dotnet build .\b-Code\Ratio\Ratio.csproj -c Release -p:NuGetAudit=false
+dotnet run --project .\b-Code\Ratio.Tests\Ratio.Tests.csproj -c Release -p:NuGetAudit=false
 powershell -NoProfile -ExecutionPolicy Bypass -File .\b-Code\Test-ProjectContract.ps1 -Instantiation
 ```
 
-自动验证全程离线：对话用例走假传输，不出网、不计费。需要联网实调时设 `APOLLO_LIVE=1` 再跑测试。
+自动验证全程离线：对话用例走假传输，不出网、不计费。需要联网实调时设 `RATIO_LIVE=1` 再跑测试。
 
 ## 开发与发布
 
 改动只进 `vulcan.dev.start` 创建的工作区，经宿主 Console CLI 走
 `vulcan.dev.start` → `vulcan.dev.submit`（候选构建并热装送审）→ `vulcan.dev.finish`（批准后并回并写入 `z-Publish`）。
-本仓不自行发布；`eng/Build-HistoryApolloPackage.ps1` 只用于本地候选构建。
+本仓不自行发布；`eng/Build-RatioPackage.ps1` 只用于本地候选构建。
 
 ## 要点
 
-- 密钥只落在本机 `%AppData%\HistoryVulcan\ModuleData\HistoryApollo\providers.json`（宿主给的数据目录），或由环境变量提供（优先）：
-  DeepSeek 为 `APOLLO_DEEPSEEK_KEY` / `DEEPSEEK_API_KEY`，博查为 `APOLLO_BOCHA_KEY` / `BOCHA_API_KEY`，通义千问为 `APOLLO_QWEN_KEY` / `QWEN_API_KEY`。
+- 密钥只落在本机 `%AppData%\HistoryVulcan\ModuleData\Ratio\providers.json`（宿主给的数据目录），或由环境变量提供（优先）：
+  DeepSeek 为 `RATIO_DEEPSEEK_KEY` / `DEEPSEEK_API_KEY`，博查为 `RATIO_BOCHA_KEY` / `BOCHA_API_KEY`，通义千问为 `RATIO_QWEN_KEY` / `QWEN_API_KEY`。
+  改名后首次装载会把旧 `ModuleData\HistoryApollo\providers.json` 复制过来，不必重配。
+- 本机推理服务被 Echo、Codex 和本模块共用，同一时间只装一个模型：换模、停服对所有客户端生效。服务目录默认 `F:\LinuxModuleServices`，可用 `RATIO_LOCAL_ROOT` 改。
 - **密钥不入库。** 项目合同检查会扫描全仓，拒绝任何形如 `sk-<长串>` 的真实密钥。
 - 嵌套调用的过程输出也逐轮进控制台；消费方不要再从载荷复述调用过程。
 

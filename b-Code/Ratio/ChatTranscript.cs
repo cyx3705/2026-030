@@ -1,6 +1,6 @@
 using System.Text.Json;
 
-namespace HistoryApollo;
+namespace Ratio;
 
 /// <summary>把命令参数变成消息序列，再把结果变成回执。</summary>
 internal static class ChatTranscript
@@ -12,7 +12,7 @@ internal static class ChatTranscript
     public static IReadOnlyList<ChatMessage> FromPrompt(string? system, string? prompt)
     {
         if (string.IsNullOrWhiteSpace(prompt))
-            throw new ApolloInputException("prompt 不能为空");
+            throw new RatioInputException("prompt 不能为空");
 
         var messages = new List<ChatMessage>(2);
         if (!string.IsNullOrWhiteSpace(system))
@@ -31,7 +31,7 @@ internal static class ChatTranscript
     public static IReadOnlyList<ChatMessage> Parse(string? json)
     {
         if (string.IsNullOrWhiteSpace(json))
-            throw new ApolloInputException("messages 不能为空");
+            throw new RatioInputException("messages 不能为空");
 
         JsonDocument document;
         try
@@ -40,32 +40,32 @@ internal static class ChatTranscript
         }
         catch (JsonException ex)
         {
-            throw new ApolloInputException($"messages 不是合法 JSON：{ex.Message}");
+            throw new RatioInputException($"messages 不是合法 JSON：{ex.Message}");
         }
 
         using (document)
         {
             if (document.RootElement.ValueKind != JsonValueKind.Array)
-                throw new ApolloInputException("messages 必须是 JSON 数组");
+                throw new RatioInputException("messages 必须是 JSON 数组");
 
             var messages = new List<ChatMessage>();
             foreach (var item in document.RootElement.EnumerateArray())
             {
                 if (item.ValueKind != JsonValueKind.Object)
-                    throw new ApolloInputException("messages 的每一项必须是对象");
+                    throw new RatioInputException("messages 的每一项必须是对象");
 
                 var role = item.TryGetProperty("role", out var roleNode) ? roleNode.GetString() : null;
                 var content = item.TryGetProperty("content", out var contentNode) ? contentNode.GetString() : null;
                 if (string.IsNullOrWhiteSpace(role) || !KnownRoles.Contains(role))
-                    throw new ApolloInputException($"role 只能是 system / user / assistant，收到：{role ?? "(空)"}");
+                    throw new RatioInputException($"role 只能是 system / user / assistant，收到：{role ?? "(空)"}");
                 if (content == null)
-                    throw new ApolloInputException("每条消息都必须有 content");
+                    throw new RatioInputException("每条消息都必须有 content");
 
                 messages.Add(new ChatMessage(role.ToLowerInvariant(), content));
             }
 
             if (messages.Count == 0)
-                throw new ApolloInputException("messages 至少要有一条");
+                throw new RatioInputException("messages 至少要有一条");
             return messages;
         }
     }

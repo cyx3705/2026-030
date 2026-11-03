@@ -3,7 +3,7 @@ using System.Text;
 using System.Text.Json;
 using System.Text.Json.Nodes;
 
-namespace HistoryApollo;
+namespace Ratio;
 
 /// <summary>一条对话消息。</summary>
 /// <param name="Role">system / user / assistant。</param>
@@ -61,7 +61,7 @@ internal sealed record ChatOutcome(
 }
 
 /// <summary>远端拒绝或不可达。消息已包含服务端给出的原因，可直接作为失败回执。</summary>
-internal sealed class ApolloRemoteException(string message) : Exception(message);
+internal sealed class RatioRemoteException(string message) : Exception(message);
 
 /// <summary>
 /// OpenAI 兼容的 chat/completions 客户端。
@@ -135,21 +135,19 @@ internal sealed class ChatClient : IDisposable
         IProgress<string>? trace = null)
     {
         if (messages.Count == 0)
-            throw new ApolloInputException("至少需要一条消息");
+            throw new RatioInputException("至少需要一条消息");
         RequireKey(provider);
 
-        var model = string.IsNullOrWhiteSpace(options.Model) ? provider.Model : options.Model.Trim();
-        if (string.IsNullOrWhiteSpace(model))
-            throw new ApolloInputException($"供应商 {provider.Name} 没有默认模型，请用 model= 指定");
         if (options.MaxTokens is <= 0)
-            throw new ApolloInputException("maxtokens 必须为正整数");
+            throw new RatioInputException("maxtokens 必须为正整数");
         if (options.WebSearch && search == null)
-            throw new ApolloInputException("本次调用要求联网，但没有接入搜索服务");
+            throw new RatioInputException("本次调用要求联网，但没有接入搜索服务");
 
         var conversation = new JsonArray();
         foreach (var message in messages)
             conversation.Add(new JsonObject { ["role"] = message.Role, ["content"] = ContentOf(message) });
 
+        var model = await ResolveModelAsync(provider, options, cancellation).ConfigureAwait(false);
         var tag = $"#{Interlocked.Increment(ref _callSequence)}";
         var images = messages.Sum(message => message.ImageCount);
         trace?.Report(
@@ -163,12 +161,12 @@ internal sealed class ChatClient : IDisposable
         {
             for (var round = 0; ; round++)
             {
-                var payload = await ApolloHttp.SendAsync(
+                var payload = await RatioHttp.SendAsync(
                     _http,
                     provider.Name,
                     HttpMethod.Post,
                     provider.BaseUrl + "/chat/completions",
-                    provider.ApiKey!,
+                    provider.ApiKey,
                     BuildBody(model, conversation, options).ToJsonString(),
                     options.TimeoutSeconds,
                     cancellation).ConfigureAwait(false);
@@ -200,7 +198,7 @@ internal sealed class ChatClient : IDisposable
                 trace?.Report(DescribeToolRound(label, reply));
 
                 if (round >= MaxSearches + GraceRounds)
-                    throw new ApolloRemoteException($"{provider.Name} 连续 {round + 1} 轮只要求搜索、始终没有作答");
+                    throw new RatioRemoteException($"{provider.Name} 连续 {round + 1} 轮只要求搜索、始终没有作答");
 
                 // 助手这一条原样回放，包括 reasoning_content 与 tool_calls。思考模式下带工具的后续请求
                 // 要求把 reasoning_content 完整传回；自己挑字段重建，漏一个就是 400 或模型丢了上一轮的思路。
@@ -218,7 +216,7 @@ internal sealed class ChatClient : IDisposable
                 }
             }
         }
-        catch (Exception ex) when (ex is ApolloRemoteException or ApolloInputException)
+        catch (Exception ex) when (ex is RatioRemoteException or RatioInputException)
         {
             trace?.Report($"{tag} 失败：{ex.Message}");
             throw;
@@ -232,12 +230,12 @@ internal sealed class ChatClient : IDisposable
         CancellationToken cancellation)
     {
         RequireKey(provider);
-        var payload = await ApolloHttp.SendAsync(
+        var payload = await RatioHttp.SendAsync(
             _http,
             provider.Name,
             HttpMethod.Get,
             provider.BaseUrl + "/models",
-            provider.ApiKey!,
+            provider.ApiKey,
             null,
             timeoutSeconds,
             cancellation).ConfigureAwait(false);
@@ -278,13 +276,32 @@ internal sealed class ChatClient : IDisposable
         return text.ToString().TrimEnd();
     }
 
+    /// <summary>
+    /// 本次用哪个模型：显式 <c>model=</c> 优先，其次供应商默认模型。
+    /// 两者都没有时问服务要——本机推理服务同一时间只装一个模型，它报几个就只能是那一个；
+    /// 报出多个就猜不得，仍要调用方指定。
+    /// </summary>
+    private async Task<string> ResolveModelAsync(ProviderProfile provider, ChatOptions options, CancellationToken cancellation)
+    {
+        var model = string.IsNullOrWhiteSpace(options.Model) ? provider.Model : options.Model.Trim();
+        if (!string.IsNullOrWhiteSpace(model))
+            return model;
+
+        var served = await ListModelsAsync(provider, Math.Min(options.TimeoutSeconds, 30), cancellation).ConfigureAwait(false);
+        if (served.Count == 1)
+            return served[0];
+        throw new RatioInputException(served.Count == 0
+            ? $"供应商 {provider.Name} 没有默认模型，服务也没报出可用模型，请用 model= 指定"
+            : $"供应商 {provider.Name} 没有默认模型，服务报出 {served.Count} 个，请用 model= 指定");
+    }
+
     private static void RequireKey(ProviderProfile provider)
     {
-        if (!provider.HasKey)
+        if (provider.KeyRequired && !provider.HasKey)
         {
-            throw new ApolloInputException(
-                $"供应商 {provider.Name} 未配置密钥：先执行 apollo.key.set provider={provider.Name} token=<密钥>，"
-                + $"或设置环境变量 APOLLO_{provider.Name.ToUpperInvariant()}_KEY");
+            throw new RatioInputException(
+                $"供应商 {provider.Name} 未配置密钥：先执行 ratio.key.set provider={provider.Name} token=<密钥>，"
+                + $"或设置环境变量 RATIO_{provider.Name.ToUpperInvariant()}_KEY");
         }
     }
 
@@ -354,7 +371,7 @@ internal sealed class ChatClient : IDisposable
     /// <summary>执行模型要求的一次工具调用，返回交回模型的正文。</summary>
     /// <remarks>
     /// 参数错、工具名错、额度用完、单次搜索失败都**回话给模型**，让它换个词或凭已有结果作答；
-    /// 只有搜索服务没配密钥（<see cref="ApolloInputException"/>）穿透出去——那是配置问题，
+    /// 只有搜索服务没配密钥（<see cref="RatioInputException"/>）穿透出去——那是配置问题，
     /// 不该让模型装作查过。
     /// </remarks>
     private static async Task<string> RunToolAsync(
@@ -392,7 +409,7 @@ internal sealed class ChatClient : IDisposable
             trace?.Report(DescribeHits(tag, query, hits));
             return FormatHits(query, hits);
         }
-        catch (ApolloRemoteException ex)
+        catch (RatioRemoteException ex)
         {
             searches.Add(new SearchTrace(query, 0, ex.Message));
             trace?.Report($"{tag} 搜索「{query}」失败：{ex.Message}");
@@ -489,14 +506,14 @@ internal sealed class ChatClient : IDisposable
         }
         catch (JsonException ex)
         {
-            throw new ApolloRemoteException($"{provider.Name} 返回的不是 JSON：{ex.Message}");
+            throw new RatioRemoteException($"{provider.Name} 返回的不是 JSON：{ex.Message}");
         }
 
         if (root is not JsonObject document
             || document["choices"] is not JsonArray { Count: > 0 } choices
             || choices[0] is not JsonObject choice)
         {
-            throw new ApolloRemoteException($"{provider.Name} 返回里没有 choices");
+            throw new RatioRemoteException($"{provider.Name} 返回里没有 choices");
         }
 
         var message = choice["message"] as JsonObject ?? new JsonObject();

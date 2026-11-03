@@ -1,6 +1,6 @@
 using System.Net;
 using System.Text.Json;
-using HistoryApollo;
+using Ratio;
 using HistoryVulcan.Core.Commands;
 
 var tests = new (string Name, Func<Task> Run)[]
@@ -26,19 +26,25 @@ var tests = new (string Name, Func<Task> Run)[]
     ("chat trace", TestChatTraceAsync),
     ("vision provider", TestVisionProviderAsync),
     ("chat images", TestChatImagesAsync),
+    ("local provider keyless", TestLocalProviderAsync),
+    ("local status", TestLocalStatusAsync),
+    ("local switch", TestLocalSwitchAsync),
+    ("local start and stop", TestLocalStartStopAsync),
+    ("local commands", TestLocalCommandsAsync),
+    ("adopt previous store", TestAdoptPreviousStoreAsync),
 };
 
 // 联网实调默认不跑：它要花钱、要外网，且依赖本机已配置的真实密钥。
-// 交付验收时显式打开 APOLLO_LIVE=1，让「能不能真的调通」这件事也有可重复的证据。
-if (string.Equals(Environment.GetEnvironmentVariable("APOLLO_LIVE"), "1", StringComparison.Ordinal))
+// 交付验收时显式打开 RATIO_LIVE=1，让「能不能真的调通」这件事也有可重复的证据。
+if (string.Equals(Environment.GetEnvironmentVariable("RATIO_LIVE"), "1", StringComparison.Ordinal))
     tests = [.. tests, ("live deepseek call", TestLiveCallAsync)];
 
 // 识图实调另开一个开关：要通义千问（识图供应商）的密钥。
-if (string.Equals(Environment.GetEnvironmentVariable("APOLLO_LIVE_VISION"), "1", StringComparison.Ordinal))
+if (string.Equals(Environment.GetEnvironmentVariable("RATIO_LIVE_VISION"), "1", StringComparison.Ordinal))
     tests = [.. tests, ("live vision call", TestLiveVisionCallAsync)];
 
 // 联网搜索实调另开一个开关：它还要博查密钥，不该让只配了 DeepSeek 的机器 VERIFY-LIVE 变红。
-if (string.Equals(Environment.GetEnvironmentVariable("APOLLO_LIVE_WEB"), "1", StringComparison.Ordinal))
+if (string.Equals(Environment.GetEnvironmentVariable("RATIO_LIVE_WEB"), "1", StringComparison.Ordinal))
     tests = [.. tests, ("live web search call", TestLiveWebCallAsync)];
 
 var failed = 0;
@@ -67,7 +73,7 @@ static Task TestProviderDefaultsAsync()
     Equal("deepseek-chat", profile.Model);
     Equal("none", profile.KeySource);
     True(!profile.HasKey, "全新库不应带出密钥");
-    Throws<ApolloInputException>(() => scope.Store.Resolve("nowhere"));
+    Throws<RatioInputException>(() => scope.Store.Resolve("nowhere"));
     return Task.CompletedTask;
 }
 
@@ -89,9 +95,9 @@ static Task TestKeyRoundtripAsync()
 
     var cleared = reopened.ClearKey("deepseek");
     True(!cleared.HasKey, "清除后不应再有密钥");
-    Throws<ApolloInputException>(() => reopened.SetKey(null, "  "));
-    Throws<ApolloInputException>(() => reopened.SetKey(null, "sk-with space"));
-    Throws<ApolloInputException>(() => reopened.SetBaseUrl(null, "ftp://example.com"));
+    Throws<RatioInputException>(() => reopened.SetKey(null, "  "));
+    Throws<RatioInputException>(() => reopened.SetKey(null, "sk-with space"));
+    Throws<RatioInputException>(() => reopened.SetBaseUrl(null, "ftp://example.com"));
     return Task.CompletedTask;
 }
 
@@ -99,7 +105,7 @@ static Task TestDefineProviderAsync()
 {
     using var scope = new StoreScope();
     True(!scope.Store.Knows("moonshot"), "库里本不该认识 moonshot");
-    Throws<ApolloInputException>(() => scope.Store.SetModel("moonshot", "kimi"));
+    Throws<RatioInputException>(() => scope.Store.SetModel("moonshot", "kimi"));
 
     var defined = scope.Store.Define("MoonShot", "https://api.moonshot.cn/v1/", "kimi");
     Equal("moonshot", defined.Name);
@@ -107,12 +113,12 @@ static Task TestDefineProviderAsync()
     Equal("kimi", defined.Model);
     True(scope.Store.Knows("moonshot"), "登记后应认识 moonshot");
 
-    // 内置的三家（deepseek、识图 qwen 与搜索服务 bocha）仍在，登记新供应商不会顶掉它们。
+    // 内置的四家（deepseek、识图 qwen、本机 local 与搜索服务 bocha）仍在，登记新供应商不会顶掉它们。
     Equal("https://api.deepseek.com", scope.Store.Resolve("deepseek").BaseUrl);
-    Equal(4, scope.Store.All().Count);
+    Equal(5, scope.Store.All().Count);
 
-    Throws<ApolloInputException>(() => scope.Store.Define("bad name", "https://x.test", null));
-    Throws<ApolloInputException>(() => scope.Store.Define("ok", "not-a-url", null));
+    Throws<RatioInputException>(() => scope.Store.Define("bad name", "https://x.test", null));
+    Throws<RatioInputException>(() => scope.Store.Define("ok", "not-a-url", null));
     return Task.CompletedTask;
 }
 
@@ -120,16 +126,16 @@ static Task TestEnvironmentKeyAsync()
 {
     using var scope = new StoreScope();
     scope.Store.SetKey(null, "sk-from-store-000");
-    Environment.SetEnvironmentVariable("APOLLO_DEEPSEEK_KEY", "sk-from-env-1111");
+    Environment.SetEnvironmentVariable("RATIO_DEEPSEEK_KEY", "sk-from-env-1111");
     try
     {
         var profile = new ProviderStore(scope.Store.Path).Resolve(null);
         Equal("sk-from-env-1111", profile.ApiKey!);
-        Equal("env:APOLLO_DEEPSEEK_KEY", profile.KeySource);
+        Equal("env:RATIO_DEEPSEEK_KEY", profile.KeySource);
     }
     finally
     {
-        Environment.SetEnvironmentVariable("APOLLO_DEEPSEEK_KEY", null);
+        Environment.SetEnvironmentVariable("RATIO_DEEPSEEK_KEY", null);
     }
 
     return Task.CompletedTask;
@@ -158,7 +164,7 @@ static Task TestTranscriptFromPromptAsync()
     Equal("system", guided[0].Role);
     Equal("你是史官", guided[0].Content);
 
-    Throws<ApolloInputException>(() => ChatTranscript.FromPrompt(null, "  "));
+    Throws<RatioInputException>(() => ChatTranscript.FromPrompt(null, "  "));
     return Task.CompletedTask;
 }
 
@@ -170,11 +176,11 @@ static Task TestTranscriptParseAsync()
     Equal("system", messages[0].Role);
     Equal("b", messages[1].Content);
 
-    Throws<ApolloInputException>(() => ChatTranscript.Parse("{}"));
-    Throws<ApolloInputException>(() => ChatTranscript.Parse("[]"));
-    Throws<ApolloInputException>(() => ChatTranscript.Parse("""[{"role":"root","content":"x"}]"""));
-    Throws<ApolloInputException>(() => ChatTranscript.Parse("""[{"role":"user"}]"""));
-    Throws<ApolloInputException>(() => ChatTranscript.Parse("not json"));
+    Throws<RatioInputException>(() => ChatTranscript.Parse("{}"));
+    Throws<RatioInputException>(() => ChatTranscript.Parse("[]"));
+    Throws<RatioInputException>(() => ChatTranscript.Parse("""[{"role":"root","content":"x"}]"""));
+    Throws<RatioInputException>(() => ChatTranscript.Parse("""[{"role":"user"}]"""));
+    Throws<RatioInputException>(() => ChatTranscript.Parse("not json"));
     return Task.CompletedTask;
 }
 
@@ -234,7 +240,7 @@ static async Task TestChatErrorAsync()
         """{"error": {"message": "Authentication Fails"}}"""));
 
     var profile = new ProviderProfile("deepseek", "https://api.deepseek.com", "deepseek-chat", "sk-bad", "store");
-    var failure = await ThrowsAsync<ApolloRemoteException>(() => client.CompleteAsync(
+    var failure = await ThrowsAsync<RatioRemoteException>(() => client.CompleteAsync(
         profile,
         [new ChatMessage("user", "hi")],
         new ChatOptions(),
@@ -244,7 +250,7 @@ static async Task TestChatErrorAsync()
     True(failure.Message.Contains("Authentication Fails", StringComparison.Ordinal), "失败回执应带服务端原因");
 
     using var garbage = FakeTransport.Client((_, _) => (HttpStatusCode.OK, "<html>gateway</html>"));
-    await ThrowsAsync<ApolloRemoteException>(() => garbage.CompleteAsync(
+    await ThrowsAsync<RatioRemoteException>(() => garbage.CompleteAsync(
         profile,
         [new ChatMessage("user", "hi")],
         new ChatOptions(),
@@ -256,26 +262,32 @@ static async Task TestMissingKeyAsync()
     using var client = FakeTransport.Client((_, _) => throw new InvalidOperationException("不该发出请求"));
     var profile = new ProviderProfile("deepseek", "https://api.deepseek.com", "deepseek-chat", null, "none");
 
-    var failure = await ThrowsAsync<ApolloInputException>(() => client.CompleteAsync(
+    var failure = await ThrowsAsync<RatioInputException>(() => client.CompleteAsync(
         profile,
         [new ChatMessage("user", "hi")],
         new ChatOptions(),
         CancellationToken.None));
-    True(failure.Message.Contains("apollo.key.set", StringComparison.Ordinal), "应指出配置密钥的办法");
+    True(failure.Message.Contains("ratio.key.set", StringComparison.Ordinal), "应指出配置密钥的办法");
 
-    await ThrowsAsync<ApolloInputException>(() => client.CompleteAsync(
+    await ThrowsAsync<RatioInputException>(() => client.CompleteAsync(
         profile with { ApiKey = "sk-test" },
         [],
         new ChatOptions(),
         CancellationToken.None));
 
-    await ThrowsAsync<ApolloInputException>(() => client.CompleteAsync(
+    await ThrowsAsync<RatioInputException>(() => client.CompleteAsync(
         profile with { ApiKey = "sk-test" },
         [new ChatMessage("user", "hi")],
         new ChatOptions { MaxTokens = 0 },
         CancellationToken.None));
 
-    await ThrowsAsync<ApolloInputException>(() => client.CompleteAsync(
+    // 没有默认模型时问服务要；服务报出不止一个就猜不得，仍要调用方指定。
+    using var several = FakeTransport.Client((request, _) =>
+    {
+        Equal("https://api.deepseek.com/models", request.RequestUri!.ToString());
+        return (HttpStatusCode.OK, """{"data":[{"id":"a"},{"id":"b"}]}""");
+    });
+    await ThrowsAsync<RatioInputException>(() => several.CompleteAsync(
         profile with { ApiKey = "sk-test", Model = string.Empty },
         [new ChatMessage("user", "hi")],
         new ChatOptions(),
@@ -315,40 +327,40 @@ static Task TestCommandRegistrationAsync()
     var registry = new Registrar();
 
     // 注册表在这里会同时校验 Ask 与 ConfirmPrompt 是否配套、命令类是否合法。
-    ApolloCommandCatalog.Register(registry, scope.Store, client, new FakeSearch(_ => []));
+    RatioCommandCatalog.Register(registry, scope.Store, client, new FakeSearch(_ => []));
 
     string[] expected =
     [
-        "apollo.chat.ask",
-        "apollo.chat.send",
-        "apollo.model.list",
-        "apollo.provider.list",
-        "apollo.provider.use",
-        "apollo.provider.config",
-        "apollo.key.set",
-        "apollo.key.clear",
+        "ratio.chat.ask",
+        "ratio.chat.send",
+        "ratio.model.list",
+        "ratio.provider.list",
+        "ratio.provider.use",
+        "ratio.provider.config",
+        "ratio.key.set",
+        "ratio.key.clear",
     ];
     foreach (var name in expected)
     {
         True(registry.TryGet(name, out var descriptor), $"未注册 {name}");
-        Equal("apollo", descriptor!.Domain!);
+        Equal("ratio", descriptor!.Domain!);
     }
 
     Equal(
         expected.Length,
-        registry.All.Count(descriptor => descriptor.Name.StartsWith("apollo.", StringComparison.Ordinal)));
+        registry.All.Count(descriptor => descriptor.Name.StartsWith("ratio.", StringComparison.Ordinal)));
 
-    True(registry.TryGet("apollo.key.clear", out var clear), "缺少 apollo.key.clear");
+    True(registry.TryGet("ratio.key.clear", out var clear), "缺少 ratio.key.clear");
     Equal(CommandLevel.Ask, clear!.Level);
     True(clear.ConfirmPrompt != null, "删除密钥必须要人确认");
 
-    True(registry.TryGet("apollo.model.list", out var models), "缺少 apollo.model.list");
+    True(registry.TryGet("ratio.model.list", out var models), "缺少 ratio.model.list");
     True(models!.Readonly, "列模型是只读的");
 
-    True(registry.TryGet("apollo.chat.ask", out var ask), "缺少 apollo.chat.ask");
+    True(registry.TryGet("ratio.chat.ask", out var ask), "缺少 ratio.chat.ask");
     True(!ask!.Readonly, "对话会发出计费请求，不应声明为只读");
 
-    foreach (var name in new[] { "apollo.chat.ask", "apollo.chat.send" })
+    foreach (var name in new[] { "ratio.chat.ask", "ratio.chat.send" })
     {
         True(registry.TryGet(name, out var chat), $"缺少 {name}");
         var web = chat!.Parameters.SingleOrDefault(parameter => parameter.Name == "web");
@@ -363,11 +375,11 @@ static Task TestSecretParameterContractAsync()
     using var scope = new StoreScope();
     using var client = FakeTransport.Client((_, _) => (HttpStatusCode.OK, "{}"));
     var registry = new Registrar();
-    ApolloCommandCatalog.Register(registry, scope.Store, client, new FakeSearch(_ => []));
+    RatioCommandCatalog.Register(registry, scope.Store, client, new FakeSearch(_ => []));
 
     // 总线按参数名判定敏感值：名字必须以 token 结尾，位置 0 才会被位置传参的遮蔽覆盖。
     // 改名成 apikey / key 会让回显、命令历史和结果脱敏整体失效，所以在这里钉住。
-    True(registry.TryGet("apollo.key.set", out var descriptor), "缺少 apollo.key.set");
+    True(registry.TryGet("ratio.key.set", out var descriptor), "缺少 ratio.key.set");
     var secret = descriptor!.Parameters.Single(parameter => parameter.Required);
     Equal("token", secret.Name);
     Equal(0, secret.Position!.Value);
@@ -376,18 +388,18 @@ static Task TestSecretParameterContractAsync()
 
 /// <summary>
 /// 实调用本机真实配置：模块装在宿主里时的数据目录。宿主 6.0.0 起由宿主给，测试进程里没有宿主，
-/// 所以按 APOLLO_DATA 指定，缺省取宿主的模块数据根（只在 APOLLO_LIVE* 实调时用到）。
+/// 所以按 RATIO_DATA 指定，缺省取宿主的模块数据根（只在 RATIO_LIVE* 实调时用到）。
 /// </summary>
 static string LiveDataDirectory()
-    => Environment.GetEnvironmentVariable("APOLLO_DATA") is { Length: > 0 } path
+    => Environment.GetEnvironmentVariable("RATIO_DATA") is { Length: > 0 } path
         ? path
-        : Path.Combine(Environment.GetEnvironmentVariable("APPDATA") ?? "", "HistoryVulcan", "ModuleData", "HistoryApollo");
+        : Path.Combine(Environment.GetEnvironmentVariable("APPDATA") ?? "", "HistoryVulcan", "ModuleData", "Ratio");
 
-/// <summary>用本机真实配置向 DeepSeek 发一次最小请求；只在 APOLLO_LIVE=1 时运行。</summary>
+/// <summary>用本机真实配置向 DeepSeek 发一次最小请求；只在 RATIO_LIVE=1 时运行。</summary>
 static async Task TestLiveCallAsync()
 {
-    ApolloRuntime.Use(LiveDataDirectory());
-    var profile = ApolloRuntime.Providers.Resolve(null);
+    RatioRuntime.Use(LiveDataDirectory());
+    var profile = RatioRuntime.Providers.Resolve(null);
     True(profile.HasKey, $"{profile.Name} 未配置密钥，无法做联网实调");
 
     using var client = new ChatClient();
@@ -414,9 +426,9 @@ static Task TestSearchProviderKindAsync()
     // 搜索服务的钥匙与对话供应商同库、同一条指令写入，但它不能被当成对话供应商来用。
     scope.Store.SetKey("bocha", "bocha-fake-key-0000");
     True(new ProviderStore(scope.Store.Path).Resolve("bocha").HasKey, "博查密钥应落盘");
-    var misuse = Throws<ApolloInputException>(() => scope.Store.ResolveChat("bocha"));
+    var misuse = Throws<RatioInputException>(() => scope.Store.ResolveChat("bocha"));
     True(misuse.Message.Contains("web=true", StringComparison.Ordinal), "拒绝时应指出联网的正确用法");
-    Throws<ApolloInputException>(() => scope.Store.SetDefaultProvider("bocha"));
+    Throws<RatioInputException>(() => scope.Store.SetDefaultProvider("bocha"));
     Equal("deepseek", scope.Store.DefaultProvider);
     return Task.CompletedTask;
 }
@@ -441,12 +453,12 @@ static async Task TestWebSearchRequestAsync()
     }));
 
     // 机器上若已用环境变量配了博查密钥，「没配密钥」这一段无从验证，跳过它而不是误报。
-    if (Environment.GetEnvironmentVariable("APOLLO_BOCHA_KEY") is null
+    if (Environment.GetEnvironmentVariable("RATIO_BOCHA_KEY") is null
         && Environment.GetEnvironmentVariable("BOCHA_API_KEY") is null)
     {
-        var missing = await ThrowsAsync<ApolloInputException>(
+        var missing = await ThrowsAsync<RatioInputException>(
             () => search.SearchAsync("CDQ2B20-10D", 5, 30, CancellationToken.None));
-        True(missing.Message.Contains("apollo.key.set provider=bocha", StringComparison.Ordinal), "应指出配置博查密钥的办法");
+        True(missing.Message.Contains("ratio.key.set provider=bocha", StringComparison.Ordinal), "应指出配置博查密钥的办法");
         True(captured is null, "没有密钥时不得发出请求");
     }
 
@@ -463,7 +475,7 @@ static async Task TestWebSearchRequestAsync()
     Equal(5, sent.RootElement.GetProperty("count").GetInt32());
 
     // 业务错误装在 HTTP 200 里：必须变成失败，不能当成「没有结果」让模型一本正经地答「查不到」。
-    var rejected = Throws<ApolloRemoteException>(
+    var rejected = Throws<RatioRemoteException>(
         () => WebSearchClient.ReadHits("bocha", """{"code":403,"msg":"余额不足","data":null}"""));
     True(rejected.Message.Contains("余额不足", StringComparison.Ordinal), "业务错误应带出服务端原因");
     Equal(0, WebSearchClient.ReadHits("bocha", """{"code":"200","data":{}}""").Count);
@@ -538,7 +550,7 @@ static async Task TestWebSearchToolLoopAsync()
     Equal(0, quiet.SearchCount);
     using var plainBody = JsonDocument.Parse(plainBodies[0]);
     True(!plainBody.RootElement.TryGetProperty("tools", out _), "不开 web 时请求里不得带工具");
-    await ThrowsAsync<ApolloInputException>(() => plain.CompleteAsync(
+    await ThrowsAsync<RatioInputException>(() => plain.CompleteAsync(
         profile,
         [new ChatMessage("user", "hi")],
         new ChatOptions { WebSearch = true },
@@ -559,7 +571,7 @@ static async Task TestWebSearchBudgetAsync()
 
     var search = new FakeSearch(_ => []);
     var profile = new ProviderProfile("deepseek", "https://api.deepseek.com", "deepseek-chat", "sk-test", "store");
-    var failure = await ThrowsAsync<ApolloRemoteException>(() => client.CompleteAsync(
+    var failure = await ThrowsAsync<RatioRemoteException>(() => client.CompleteAsync(
         profile,
         [new ChatMessage("user", "一直搜")],
         new ChatOptions { WebSearch = true },
@@ -619,7 +631,7 @@ static async Task TestChatTraceAsync()
     // 失败也要报出来，与失败回执同文；截断的答复要报结束原因。
     var failing = new ListProgress();
     using var rejected = FakeTransport.Client((_, _) => (HttpStatusCode.Unauthorized, """{"error": {"message": "Authentication Fails"}}"""));
-    var failure = await ThrowsAsync<ApolloRemoteException>(() => rejected.CompleteAsync(
+    var failure = await ThrowsAsync<RatioRemoteException>(() => rejected.CompleteAsync(
         profile, [new ChatMessage("user", "hi")], new ChatOptions(), CancellationToken.None, null, failing));
     Equal(2, failing.Items.Count);
     True(failing.Items[1].EndsWith("失败：" + failure.Message, StringComparison.Ordinal), "失败段必须与失败回执同文：" + failing.Items[1]);
@@ -631,13 +643,13 @@ static async Task TestChatTraceAsync()
     True(truncated.Items[^1].EndsWith("· 结束原因 length", StringComparison.Ordinal), "被截断时必须报结束原因：" + truncated.Items[^1]);
     True(!truncated.Items[^1].Contains("第 1 轮", StringComparison.Ordinal), "不联网只有一轮，不标轮次");
 
-    // 指令接线：apollo.chat.ask 把总线给的进度通道交给这次调用。
+    // 指令接线：ratio.chat.ask 把总线给的进度通道交给这次调用。
     using var scope = new StoreScope();
     scope.Store.SetKey(null, "sk-0123456789abcdef");
     using var plain = FakeTransport.Client((_, _) => (HttpStatusCode.OK, """{"model":"deepseek-chat","choices":[{"finish_reason":"stop","message":{"content":"好"}}]}"""));
     var registry = new Registrar();
-    ApolloCommandCatalog.Register(registry, scope.Store, plain, new FakeSearch(_ => []));
-    True(registry.TryGet("apollo.chat.ask", out var ask), "缺少 apollo.chat.ask");
+    RatioCommandCatalog.Register(registry, scope.Store, plain, new FakeSearch(_ => []));
+    True(registry.TryGet("ratio.chat.ask", out var ask), "缺少 ratio.chat.ask");
     var progress = new ListProgress();
     var values = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase) { ["prompt"] = "你好" };
     var result = await ask!.Handler(new CommandContext(ask, values, "test", progress, CancellationToken.None));
@@ -646,14 +658,14 @@ static async Task TestChatTraceAsync()
     True(progress.Items[1].Contains("答复：好", StringComparison.Ordinal), "指令必须把过程写进总线的进度通道：" + progress.Items[1]);
 }
 
-/// <summary>用本机真实配置做一次联网实调；只在 APOLLO_LIVE_WEB=1 时运行。</summary>
+/// <summary>用本机真实配置做一次联网实调；只在 RATIO_LIVE_WEB=1 时运行。</summary>
 static async Task TestLiveWebCallAsync()
 {
-    ApolloRuntime.Use(LiveDataDirectory());
-    var store = ApolloRuntime.Providers;
+    RatioRuntime.Use(LiveDataDirectory());
+    var store = RatioRuntime.Providers;
     var profile = store.ResolveChat(null);
     True(profile.HasKey, $"{profile.Name} 未配置密钥，无法做联网实调");
-    True(store.Resolve(ProviderStore.SearchProvider).HasKey, "bocha 未配置密钥：先 apollo.key.set provider=bocha token=<密钥>");
+    True(store.Resolve(ProviderStore.SearchProvider).HasKey, "bocha 未配置密钥：先 ratio.key.set provider=bocha token=<密钥>");
 
     using var client = new ChatClient();
     using var search = new WebSearchClient(store);
@@ -683,8 +695,8 @@ static Task TestVisionProviderAsync()
 
     // 写了名字就听调用方的；搜索服务不能当识图供应商。
     Equal("deepseek", scope.Store.ResolveVision("deepseek").Name);
-    Throws<ApolloInputException>(() => scope.Store.SetVisionProvider("bocha"));
-    Throws<ApolloInputException>(() => scope.Store.SetVisionProvider("nowhere"));
+    Throws<RatioInputException>(() => scope.Store.SetVisionProvider("bocha"));
+    Throws<RatioInputException>(() => scope.Store.SetVisionProvider("nowhere"));
 
     // 换识图供应商落盘，不碰默认供应商；0.4 的旧库（没有 vision 项）读出来是内置值。
     scope.Store.Define("doubao", "https://ark.cn-beijing.volces.com/api/v3", "ep-test");
@@ -710,16 +722,16 @@ static async Task TestChatImagesAsync()
     Equal(1, images.Count);
     Equal("data:image/png;base64,iVBORw==", images[0]);
     Equal(0, ChatImages.Load(null).Count);
-    Throws<ApolloInputException>(() => ChatImages.Load("图纸.png"));
-    Throws<ApolloInputException>(() => ChatImages.Load(Path.Combine(root, "a.tif")));
-    Throws<ApolloInputException>(() => ChatImages.Load(Path.Combine(root, "missing.png")));
-    Throws<ApolloInputException>(() => ChatImages.Load(string.Join("|", Enumerable.Repeat(png, ChatImages.MaxCount + 1))));
+    Throws<RatioInputException>(() => ChatImages.Load("图纸.png"));
+    Throws<RatioInputException>(() => ChatImages.Load(Path.Combine(root, "a.tif")));
+    Throws<RatioInputException>(() => ChatImages.Load(Path.Combine(root, "missing.png")));
+    Throws<RatioInputException>(() => ChatImages.Load(string.Join("|", Enumerable.Repeat(png, ChatImages.MaxCount + 1))));
 
     // 挂在最后一条 user 消息上；没有 user 消息就拒。
     var attached = ChatImages.Attach([new ChatMessage("user", "a"), new ChatMessage("assistant", "b"), new ChatMessage("user", "c")], images);
     Equal(0, attached[0].ImageCount);
     Equal(1, attached[2].ImageCount);
-    Throws<ApolloInputException>(() => ChatImages.Attach([new ChatMessage("system", "x")], images));
+    Throws<RatioInputException>(() => ChatImages.Attach([new ChatMessage("system", "x")], images));
 
     // 指令接线：带图且没写 provider → 走识图供应商的接入点，content 是「文字 + image_url」数组；控制台报附图张数。
     scope.Store.SetKey("qwen", "sk-qwen-test");
@@ -730,9 +742,9 @@ static async Task TestChatImagesAsync()
         return (HttpStatusCode.OK, """{"model":"qwen-vl-max","choices":[{"finish_reason":"stop","message":{"content":"一块板"}}]}""");
     });
     var registry = new Registrar();
-    ApolloCommandCatalog.Register(registry, scope.Store, client, new FakeSearch(_ => []));
-    True(registry.TryGet("apollo.chat.ask", out var ask), "缺少 apollo.chat.ask");
-    True(ask!.Parameters.Any(parameter => parameter.Name == "images"), "apollo.chat.ask 必须有 images 参数");
+    RatioCommandCatalog.Register(registry, scope.Store, client, new FakeSearch(_ => []));
+    True(registry.TryGet("ratio.chat.ask", out var ask), "缺少 ratio.chat.ask");
+    True(ask!.Parameters.Any(parameter => parameter.Name == "images"), "ratio.chat.ask 必须有 images 参数");
     var progress = new ListProgress();
     var values = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase) { ["prompt"] = "这是什么", ["images"] = png };
     var result = await ask.Handler(new CommandContext(ask, values, "test", progress, CancellationToken.None));
@@ -760,14 +772,14 @@ static async Task TestChatImagesAsync()
         Equal(JsonValueKind.String, sent.RootElement.GetProperty("messages")[0].GetProperty("content").ValueKind);
 }
 
-/// <summary>用本机真实配置让识图供应商看一张图；只在 APOLLO_LIVE_VISION=1 时运行，图片取 APOLLO_LIVE_IMAGE。</summary>
+/// <summary>用本机真实配置让识图供应商看一张图；只在 RATIO_LIVE_VISION=1 时运行，图片取 RATIO_LIVE_IMAGE。</summary>
 static async Task TestLiveVisionCallAsync()
 {
-    ApolloRuntime.Use(LiveDataDirectory());
-    var profile = ApolloRuntime.Providers.ResolveVision(null);
-    True(profile.HasKey, $"{profile.Name} 未配置密钥：先 apollo.key.set provider={profile.Name} token=<密钥>");
-    var image = Environment.GetEnvironmentVariable("APOLLO_LIVE_IMAGE");
-    True(!string.IsNullOrWhiteSpace(image), "APOLLO_LIVE_IMAGE 要给一张本机图片的绝对路径");
+    RatioRuntime.Use(LiveDataDirectory());
+    var profile = RatioRuntime.Providers.ResolveVision(null);
+    True(profile.HasKey, $"{profile.Name} 未配置密钥：先 ratio.key.set provider={profile.Name} token=<密钥>");
+    var image = Environment.GetEnvironmentVariable("RATIO_LIVE_IMAGE");
+    True(!string.IsNullOrWhiteSpace(image), "RATIO_LIVE_IMAGE 要给一张本机图片的绝对路径");
 
     using var client = new ChatClient();
     var outcome = await client.CompleteAsync(
@@ -782,6 +794,195 @@ static async Task TestLiveVisionCallAsync()
 }
 
 // ------------------------------------------------------------------ 测试脚手架
+
+static async Task TestLocalProviderAsync()
+{
+    using var scope = new StoreScope();
+    var profile = scope.Store.ResolveChat("local");
+    Equal("http://127.0.0.1:11435/v1", profile.BaseUrl);
+    Equal(string.Empty, profile.Model);
+    True(!profile.KeyRequired, "本机回环接入点不应要求密钥");
+    True(scope.Store.Resolve("deepseek").KeyRequired, "远端供应商仍要密钥");
+    True(!scope.Store.Define("ollama", "http://localhost:11434/v1", "qwen3:8b").KeyRequired, "localhost 也算本机");
+
+    string? sent = null;
+    var calls = new List<string>();
+    using var client = FakeTransport.Client((request, body) =>
+    {
+        calls.Add($"{request.Method} {request.RequestUri}");
+        True(request.Headers.Authorization is null, "没有密钥就不该带认证头");
+        if (request.Method == HttpMethod.Get)
+            return (HttpStatusCode.OK, """{"object":"list","data":[{"id":"qwen3:8b"}]}""");
+        sent = body;
+        return (HttpStatusCode.OK, """{"model":"qwen3:8b","choices":[{"message":{"content":"好"},"finish_reason":"stop"}],"usage":{"total_tokens":5}}""");
+    });
+
+    var outcome = await client.CompleteAsync(profile, [new ChatMessage("user", "hi")], new ChatOptions(), CancellationToken.None);
+    Equal("好", outcome.Content);
+    Equal("GET http://127.0.0.1:11435/v1/models", calls[0]);
+    Equal("POST http://127.0.0.1:11435/v1/chat/completions", calls[1]);
+    using var document = JsonDocument.Parse(sent!);
+    Equal("qwen3:8b", document.RootElement.GetProperty("model").GetString()!);
+}
+
+static async Task TestLocalStatusAsync()
+{
+    using var local = LocalFixture.Create((request, _) =>
+        request.RequestUri!.ToString() == "http://127.0.0.1:11435/v1/echo/models"
+            ? (HttpStatusCode.OK, LocalFixture.Inventory("qwen3:8b"))
+            : (HttpStatusCode.ServiceUnavailable, "down"));
+
+    var status = await local.StatusAsync(CancellationToken.None);
+    True(status.Running, "代理答话即在运行");
+    Equal("http://127.0.0.1:11435", status.Endpoint);
+    Equal("qwen3:8b", status.Current!);
+    Equal(4, status.Models.Count);
+    True(!status.Models.Single(model => model.Name == "qwen3.5:27b").Supported, "27B 未配置显存方案");
+    True(status.Others.All(other => !other.Up), "其他监听都不在");
+    True(LocalService.Describe(status).Contains("* qwen3:8b", StringComparison.Ordinal), "当前模型要标星");
+    using var json = JsonDocument.Parse(LocalService.ToJson(status));
+    Equal("qwen3:8b", json.RootElement.GetProperty("current").GetString()!);
+
+    using var down = LocalFixture.Create((_, _) => throw new HttpRequestException("refused"));
+    var off = await down.StatusAsync(CancellationToken.None);
+    True(!off.Running, "代理不答话即视为没在跑");
+    True(LocalService.Describe(off).Contains("ratio.local.start", StringComparison.Ordinal), "要指出怎么启动");
+}
+
+static async Task TestLocalSwitchAsync()
+{
+    var polls = 0;
+    string? posted = null;
+    using var local = LocalFixture.Create((request, body) =>
+    {
+        var url = request.RequestUri!.ToString();
+        if (url.EndsWith("/v1/echo/models", StringComparison.Ordinal))
+            return (HttpStatusCode.OK, LocalFixture.Inventory(polls >= 2 ? "gemma4:12b" : "qwen3:8b"));
+        if (!url.EndsWith("/v1/echo/model", StringComparison.Ordinal))
+            return (HttpStatusCode.ServiceUnavailable, "down");
+        if (request.Method == HttpMethod.Post)
+        {
+            posted = body;
+            Equal("application/json", request.Content!.Headers.ContentType!.MediaType!);
+            True(!request.Headers.Contains("Origin"), "换模请求不能带 Origin");
+            return (HttpStatusCode.OK, """{"state":"switching","phase":"waiting","current":"qwen3:8b","target":"gemma4:12b"}""");
+        }
+
+        polls++;
+        return polls == 1
+            ? (HttpStatusCode.OK, """{"state":"switching","phase":"loading","current":"qwen3:8b","target":"gemma4:12b"}""")
+            : (HttpStatusCode.OK, """{"state":"ready","phase":"ready","current":"gemma4:12b","target":"gemma4:12b"}""");
+    });
+
+    var progress = new ListProgress();
+    var status = await local.SwitchAsync("gemma4:12b", 60, progress, CancellationToken.None);
+    Equal("gemma4:12b", status.Current!);
+    using (var body = JsonDocument.Parse(posted!))
+        Equal("gemma4:12b", body.RootElement.GetProperty("name").GetString()!);
+    True(progress.Items.Any(item => item.Contains("加载新模型", StringComparison.Ordinal)), "阶段要逐个报出");
+
+    await ThrowsAsync<RatioInputException>(() => local.SwitchAsync("nope", 60, null, CancellationToken.None));
+    await ThrowsAsync<RatioInputException>(() => local.SwitchAsync("qwen3.5:27b", 60, null, CancellationToken.None));
+
+    using var failing = LocalFixture.Create((request, _) =>
+    {
+        if (request.RequestUri!.ToString().EndsWith("/v1/echo/models", StringComparison.Ordinal))
+            return (HttpStatusCode.OK, LocalFixture.Inventory("qwen3:8b"));
+        if (request.Method == HttpMethod.Post)
+            return (HttpStatusCode.OK, """{"state":"switching","phase":"waiting"}""");
+        return (HttpStatusCode.OK, """{"state":"failed","phase":"failed","current":"qwen3:8b","error":"显存不足；已恢复原模型"}""");
+    });
+    var failure = await ThrowsAsync<RatioRemoteException>(() => failing.SwitchAsync("gemma4:12b", 60, null, CancellationToken.None));
+    True(failure.Message.Contains("已恢复原模型", StringComparison.Ordinal), "要带服务的原话");
+}
+
+static async Task TestLocalStartStopAsync()
+{
+    var root = Path.Combine(Path.GetTempPath(), "Ratio.Tests", Guid.NewGuid().ToString("N"));
+    Directory.CreateDirectory(Path.Combine(root, "scripts"));
+    File.WriteAllText(Path.Combine(root, "scripts", "start-wsl-model-service.ps1"), string.Empty);
+    File.WriteAllText(Path.Combine(root, "scripts", "wsl-model-service.sh"), string.Empty);
+    try
+    {
+        var running = false;
+        var runs = new List<string>();
+        using var local = new LocalService(
+            () => "http://127.0.0.1:11435/v1",
+            FakeTransport.Http((request, _) =>
+                running && request.RequestUri!.ToString().EndsWith("/v1/echo/models", StringComparison.Ordinal)
+                    ? (HttpStatusCode.OK, LocalFixture.Inventory("qwen3:8b"))
+                    : (HttpStatusCode.ServiceUnavailable, "down")),
+            (file, arguments, _, output, _) =>
+            {
+                runs.Add($"{file} {string.Join(' ', arguments)}");
+                output?.Report("ok");
+                running = arguments[^1] != "stop";
+                return Task.FromResult(0);
+            },
+            root)
+        { PollInterval = TimeSpan.FromMilliseconds(1) };
+
+        var (status, started) = await local.StartAsync(60, null, CancellationToken.None);
+        True(started && status.Running, "应执行启动脚本并等到代理答话");
+        True(runs[0].StartsWith("powershell.exe -NoProfile", StringComparison.Ordinal), runs[0]);
+
+        (_, started) = await local.StartAsync(60, null, CancellationToken.None);
+        True(!started, "已在运行就不再执行脚本");
+        Equal(1, runs.Count);
+
+        var stopped = await local.StopAsync(60, null, CancellationToken.None);
+        True(!stopped.Running, "停止后不再答话");
+        Equal($"wsl.exe -d Ubuntu -e bash {LocalService.ToWslPath(Path.Combine(root, "scripts", "wsl-model-service.sh"))} stop", runs[1]);
+        Equal("/mnt/f/LinuxModuleServices/scripts/x.sh", LocalService.ToWslPath(@"F:\LinuxModuleServices\scripts\x.sh"));
+
+        using var missing = new LocalService(
+            () => "http://127.0.0.1:11435/v1",
+            FakeTransport.Http((_, _) => (HttpStatusCode.ServiceUnavailable, string.Empty)),
+            (_, _, _, _, _) => Task.FromResult(0),
+            Path.Combine(root, "none"));
+        await ThrowsAsync<RatioInputException>(() => missing.StartAsync(60, null, CancellationToken.None));
+    }
+    finally
+    {
+        Directory.Delete(root, recursive: true);
+    }
+}
+
+static Task TestLocalCommandsAsync()
+{
+    using var local = LocalFixture.Create((_, _) => (HttpStatusCode.ServiceUnavailable, string.Empty));
+    var registry = new Registrar();
+    RatioLocalCommands.Register(registry, local);
+    foreach (var name in new[] { "ratio.local.status", "ratio.local.start", "ratio.local.stop", "ratio.local.use" })
+    {
+        True(registry.TryGet(name, out var descriptor), $"未注册 {name}");
+        Equal("ratio", descriptor!.Domain!);
+    }
+
+    Equal(4, registry.All.Count);
+    True(registry.TryGet("ratio.local.status", out var status) && status!.Readonly, "status 是只读");
+    True(registry.TryGet("ratio.local.stop", out var stop) && stop!.Level == CommandLevel.Ask, "停服要确认");
+    return Task.CompletedTask;
+}
+
+static Task TestAdoptPreviousStoreAsync()
+{
+    var root = Path.Combine(Path.GetTempPath(), "Ratio.Tests", Guid.NewGuid().ToString("N"));
+    try
+    {
+        Directory.CreateDirectory(Path.Combine(root, "HistoryApollo"));
+        File.WriteAllText(Path.Combine(root, "HistoryApollo", "providers.json"), """{"default":"qwen","providers":{}}""");
+        RatioRuntime.Use(Path.Combine(root, "Ratio"));
+        Equal("qwen", RatioRuntime.Providers.DefaultProvider);
+        True(File.Exists(Path.Combine(root, "HistoryApollo", "providers.json")), "旧库只复制不移动");
+    }
+    finally
+    {
+        Directory.Delete(root, recursive: true);
+    }
+
+    return Task.CompletedTask;
+}
 
 static void Equal<T>(T expected, T actual)
 {
@@ -829,7 +1030,7 @@ static async Task<T> ThrowsAsync<T>(Func<Task> action)
 file sealed class StoreScope : IDisposable
 {
     private readonly string _root = Path.Combine(
-        Path.GetTempPath(), "HistoryApollo.Tests", Guid.NewGuid().ToString("N"));
+        Path.GetTempPath(), "Ratio.Tests", Guid.NewGuid().ToString("N"));
 
     public StoreScope() => Store = new ProviderStore(Path.Combine(_root, "providers.json"));
 
@@ -846,6 +1047,27 @@ file sealed class StoreScope : IDisposable
         {
         }
     }
+}
+
+/// <summary>本机推理服务的测试替身：假传输、不许起进程、轮询间隔调到 1 毫秒。</summary>
+file static class LocalFixture
+{
+    public static LocalService Create(Func<HttpRequestMessage, string?, (HttpStatusCode, string)> respond)
+        => new(
+            () => "http://127.0.0.1:11435/v1",
+            FakeTransport.Http(respond),
+            (_, _, _, _, _) => throw new InvalidOperationException("不该起进程"),
+            @"F:\LinuxModuleServices")
+        { PollInterval = TimeSpan.FromMilliseconds(1) };
+
+    public static string Inventory(string current) => $$"""
+        {"managed":true,"current":"{{current}}","switch":{"state":"ready","phase":"ready","current":"{{current}}"},
+         "models":[
+          {"name":"qwen3.5:35b-a3b-q4_K_M","family":"qwen","context":262144,"size":21166758176,"installed":true,"supported":true,"reason":""},
+          {"name":"qwen3:8b","family":"qwen","context":32768,"size":5225374496,"installed":true,"supported":true,"reason":""},
+          {"name":"gemma4:12b","family":"gemma4","context":16384,"size":7000000000,"installed":true,"supported":true,"reason":""},
+          {"name":"qwen3.5:27b","family":"qwen","context":32768,"size":0,"installed":true,"supported":false,"reason":"尚未配置此模型的显存分配方案"}]}
+        """;
 }
 
 /// <summary>不出网的假传输：断言请求、给定响应。</summary>

@@ -1,9 +1,9 @@
 ﻿#requires -Version 5.1
 
 <#
-    构建 HistoryApollo 发布候选。
+    构建 Ratio 发布候选。
 
-    本地默认写出 `z-Publish/HistoryApollo-vX.Y.Z/`。传入 OutputRoot 时该目录就是包根
+    本地默认写出 `z-Publish/Ratio-vX.Y.Z/`。传入 OutputRoot 时该目录就是包根
     （宿主 staging 或临时校验）。
 #>
 
@@ -26,38 +26,38 @@ $repoRoot = [IO.Path]::GetFullPath((Join-Path $componentRoot '..\..'))
 # 版本必须三处一致：版本 props、模块 manifest、项目 manifest。
 # 宿主对「manifest 与 ModuleInfo 版本不一致」的处理是静默跳过整个模块，
 # 所以这里宁可构建失败，也不让它带着漂移的版本出厂。
-$propsText = Get-Content -LiteralPath (Join-Path $componentRoot 'HistoryApolloVersion.props') -Raw -Encoding UTF8
-$versionMatch = [regex]::Match($propsText, '<HistoryApolloVersion>(?<v>[^<]+)</HistoryApolloVersion>')
+$propsText = Get-Content -LiteralPath (Join-Path $componentRoot 'RatioVersion.props') -Raw -Encoding UTF8
+$versionMatch = [regex]::Match($propsText, '<RatioVersion>(?<v>[^<]+)</RatioVersion>')
 if (-not $versionMatch.Success) {
-    throw 'HistoryApolloVersion.props 未声明 HistoryApolloVersion'
+    throw 'RatioVersion.props 未声明 RatioVersion'
 }
 $version = $versionMatch.Groups['v'].Value
 
 $manifestPath = Join-Path $componentRoot 'module.manifest.json'
 $manifest = Get-Content -LiteralPath $manifestPath -Raw -Encoding UTF8 | ConvertFrom-Json
 if ($manifest.version -ne $version) {
-    throw "module.manifest.json ($($manifest.version)) 与 HistoryApolloVersion.props ($version) 不一致"
+    throw "module.manifest.json ($($manifest.version)) 与 RatioVersion.props ($version) 不一致"
 }
 
 $projectManifest = Get-Content -LiteralPath (Join-Path $repoRoot 'project.manifest.json') -Raw -Encoding UTF8 | ConvertFrom-Json
 if ($projectManifest.project.version -ne $version) {
-    throw "project.manifest.json ($($projectManifest.project.version)) 与 HistoryApolloVersion.props ($version) 不一致"
+    throw "project.manifest.json ($($projectManifest.project.version)) 与 RatioVersion.props ($version) 不一致"
 }
 
 $buildProperties = @('-p:NuGetAudit=false')
 if (-not [string]::IsNullOrWhiteSpace($HistoryVulcanPackageRoot)) {
     $buildProperties += "-p:HistoryVulcanPackageRoot=$HistoryVulcanPackageRoot"
 }
-& dotnet build (Join-Path $componentRoot 'HistoryApollo.csproj') -c $Configuration --nologo @buildProperties
+& dotnet build (Join-Path $componentRoot 'Ratio.csproj') -c $Configuration --nologo @buildProperties
 if ($LASTEXITCODE -ne 0) { throw "构建失败，退出码 $LASTEXITCODE" }
 
 $output = Join-Path $componentRoot "bin\$Configuration\net8.0"
 if (-not (Test-Path -LiteralPath $output)) { throw "构建产物缺失: $output" }
 
-$stage = Join-Path ([System.IO.Path]::GetTempPath()) ("HistoryApollo-" + [guid]::NewGuid().ToString('N'))
+$stage = Join-Path ([System.IO.Path]::GetTempPath()) ("Ratio-" + [guid]::NewGuid().ToString('N'))
 New-Item -ItemType Directory -Path $stage -Force | Out-Null
 try {
-    foreach ($name in @('HistoryApollo.dll', 'HistoryApollo.xml', 'module.manifest.json')) {
+    foreach ($name in @('Ratio.dll', 'Ratio.xml', 'module.manifest.json')) {
         $source = Join-Path $output $name
         if (-not (Test-Path -LiteralPath $source)) { throw "应有的产物缺失: $source" }
         Copy-Item -LiteralPath $source -Destination (Join-Path $stage $name) -Force
@@ -86,7 +86,7 @@ try {
         New-Item -ItemType Directory -Path $staged -Force | Out-Null
         Get-ChildItem -LiteralPath $staged -Force | Remove-Item -Recurse -Force
         Copy-Item -Path (Join-Path $stage '*') -Destination $staged -Recurse -Force
-        Write-Host "HistoryApollo $version staged: $staged"
+        Write-Host "Ratio $version staged: $staged"
         return
     }
 
@@ -94,19 +94,19 @@ try {
     $historyRoot = Join-Path $publishRoot 'history'
     New-Item -ItemType Directory -Path $historyRoot -Force | Out-Null
     Get-ChildItem -LiteralPath $publishRoot -Directory -ErrorAction SilentlyContinue |
-        Where-Object { $_.Name -like 'HistoryApollo-v*' -and $_.Name -ne "HistoryApollo-v$version" } |
+        Where-Object { $_.Name -like 'Ratio-v*' -and $_.Name -ne "Ratio-v$version" } |
         ForEach-Object {
             $archive = Join-Path $historyRoot $_.Name
             if (Test-Path -LiteralPath $archive) { Remove-Item -LiteralPath $archive -Recurse -Force }
             Move-Item -LiteralPath $_.FullName -Destination $archive
         }
 
-    $candidate = Join-Path $publishRoot "HistoryApollo-v$version"
+    $candidate = Join-Path $publishRoot "Ratio-v$version"
     if (Test-Path -LiteralPath $candidate) { Remove-Item -LiteralPath $candidate -Recurse -Force }
     New-Item -ItemType Directory -Path $candidate -Force | Out-Null
     Copy-Item -Path (Join-Path $stage '*') -Destination $candidate -Recurse -Force
 
-    Write-Host "HistoryApollo $version packaged: $candidate"
+    Write-Host "Ratio $version packaged: $candidate"
 }
 finally {
     if (Test-Path -LiteralPath $stage) {

@@ -1,10 +1,10 @@
-# HistoryApollo 代码组件
+# Ratio 代码组件
 
 | 目录或文件 | 内容 |
 | --- | --- |
-| `HistoryApollo/` | 模块本体（权威源）。产物 `HistoryApollo.dll` 由宿主装载。 |
-| `HistoryApollo/eng/` | 发布候选打包脚本。 |
-| `HistoryApollo.Tests/` | 自动验证。可执行文件，全部 PASS 时退出码 0。 |
+| `Ratio/` | 模块本体（权威源）。产物 `Ratio.dll` 由宿主装载。 |
+| `Ratio/eng/` | 发布候选打包脚本。 |
+| `Ratio.Tests/` | 自动验证。可执行文件，全部 PASS 时退出码 0。 |
 | `Test-ProjectContract.ps1` | 只读项目合同检查：版本三处一致、模块身份、目录级别、失效链接、密钥未入库。 |
 
 `bin/`、`obj/` 是可重建生成物，不入库；发布候选写到根目录 `z-Publish/`。

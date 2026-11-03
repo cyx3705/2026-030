@@ -7,27 +7,27 @@
   },
   "project": {
     "id": "2026-030",
-    "name": "HistoryApollo",
-    "title": "HistoryApollo 模型调用",
+    "name": "Ratio",
+    "title": "Ratio 推理资源",
     "kind": [
       "software",
       "integration",
       "ai-module"
     ],
     "status": "active",
-    "version": "0.5.0",
+    "version": "0.6.0",
     "branch": "main"
   },
   "paths": {
     "activeRoots": [
       "b-Office",
-      "b-Code/HistoryApollo",
-      "b-Code/HistoryApollo.Tests",
+      "b-Code/Ratio",
+      "b-Code/Ratio.Tests",
       "b-Code"
     ],
     "sourceRoots": [
-      "b-Code/HistoryApollo",
-      "b-Code/HistoryApollo.Tests"
+      "b-Code/Ratio",
+      "b-Code/Ratio.Tests"
     ],
     "generatedRoots": [
       "b-Code/**/bin",
@@ -51,18 +51,19 @@
   },
   "commands": {
     "setup": null,
-    "build": "dotnet build .\\b-Code\\HistoryApollo\\HistoryApollo.csproj -c Release -p:NuGetAudit=false",
-    "test": "dotnet run --project .\\b-Code\\HistoryApollo.Tests\\HistoryApollo.Tests.csproj -c Release -p:NuGetAudit=false",
+    "build": "dotnet build .\\b-Code\\Ratio\\Ratio.csproj -c Release -p:NuGetAudit=false",
+    "test": "dotnet run --project .\\b-Code\\Ratio.Tests\\Ratio.Tests.csproj -c Release -p:NuGetAudit=false",
     "verify": "powershell -NoProfile -ExecutionPolicy Bypass -File .\\b-Code\\Test-ProjectContract.ps1 -Instantiation",
     "run": null,
-    "package": "powershell -NoProfile -ExecutionPolicy Bypass -File .\\b-Code\\HistoryApollo\\eng\\Build-HistoryApolloPackage.ps1"
+    "package": "powershell -NoProfile -ExecutionPolicy Bypass -File .\\b-Code\\Ratio\\eng\\Build-RatioPackage.ps1"
   },
   "externalDependencies": [
     "HistoryVulcan 6.0.0 或更新的发布快照：C:\\OneHistory\\HistoryClio\\2026-023-HistoryVulcan\\z-Publish",
     ".NET SDK 9（目标框架 net8.0）",
     "DeepSeek 开放平台：https://api.deepseek.com",
-    "博查 Web Search API：https://api.bochaai.com（apollo.chat.* web=true 时代模型搜索）",
-    "阿里云百炼 DashScope OpenAI 兼容接口：https://dashscope.aliyuncs.com/compatible-mode/v1（images= 时的识图供应商 qwen）"
+    "博查 Web Search API：https://api.bochaai.com（ratio.chat.* web=true 时代模型搜索）",
+    "阿里云百炼 DashScope OpenAI 兼容接口：https://dashscope.aliyuncs.com/compatible-mode/v1（images= 时的识图供应商 qwen）",
+    "本机统一推理服务 F:\\LinuxModuleServices（WSL：llama-server 18769 + C++ 代理 11435，OpenAI 兼容；供应商 local 与 ratio.local.*），目录可由环境变量 RATIO_LOCAL_ROOT 改"
   ],
   "contextExclusions": [
     "z-Publish/**",
@@ -73,14 +74,14 @@
     "artifacts/**"
   ],
   "publish": {
-    "versionProps": "b-Code\\HistoryApollo\\HistoryApolloVersion.props",
-    "versionProperty": "HistoryApolloVersion",
-    "sourceManifest": "b-Code\\HistoryApollo\\module.manifest.json",
+    "versionProps": "b-Code\\Ratio\\RatioVersion.props",
+    "versionProperty": "RatioVersion",
+    "sourceManifest": "b-Code\\Ratio\\module.manifest.json",
     "package": {
-      "project": "b-Code\\HistoryApollo\\HistoryApollo.csproj",
+      "project": "b-Code\\Ratio\\Ratio.csproj",
       "files": [
-        "HistoryApollo.dll",
-        "HistoryApollo.xml",
+        "Ratio.dll",
+        "Ratio.xml",
         "module.manifest.json"
       ]
     },
@@ -90,12 +91,12 @@
         "arguments": [
           "run",
           "--project",
-          "b-Code\\HistoryApollo.Tests\\HistoryApollo.Tests.csproj",
+          "b-Code\\Ratio.Tests\\Ratio.Tests.csproj",
           "-c",
           "Release",
           "-p:NuGetAudit=false"
         ],
-        "description": "Run HistoryApollo offline tests"
+        "description": "Run Ratio offline tests"
       }
     ]
   }
