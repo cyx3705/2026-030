@@ -30,4 +30,12 @@
   <ItemGroup>
     <None Update="module.manifest.json" CopyToOutputDirectory="PreserveNewest" />
   </ItemGroup>
+
+  <ItemGroup>
+    <!-- 0.7.0：本机推理服务源码随 DLL 发布，ratio.local.start 原样部署到运行区（ServiceBundle）。
+         资源名 service/<相对路径>，分隔符在 ServiceBundle 里统一成正斜杠。 -->
+    <EmbeddedResource Include="..\..\b-Code-Service\**\*"
+                      Exclude="..\..\b-Code-Service\**\__pycache__\**;..\..\b-Code-Service\*.md"
+                      LogicalName="service/%(RecursiveDir)%(Filename)%(Extension)" />
+  </ItemGroup>
 </Project>

@@ -35,9 +35,10 @@ internal delegate Task<int> ProcessRunner(
 /// 本机统一推理服务的管理面：状态、启停、换模。
 /// </summary>
 /// <remarks>
-/// 服务本体不在本仓：它在 <c>F:\LinuxModuleServices</c>，WSL 里一个 llama-server（18769）
-/// 前面挂 C++ 代理（11435，OpenAI 兼容）。同一时间只装一个模型，Echo、Codex 和本模块共用它，
-/// 所以换模和停服影响所有客户端——这里只转达服务自己的管理协议，不另起进程、不碰它的配置。
+/// 服务归本模块所有（0.7.0）：源码在仓里 <c>b-Code-Service/</c>，随 DLL 发布（<see cref="ServiceBundle"/>），
+/// 运行区是 F 盘特例 <c>F:\ModuleServicesData\Ratio</c>——WSL 里一个 llama-server（18769）前面挂 C++ 代理（11435，OpenAI 兼容）。
+/// 同一时间只装一个模型，Echo、Codex 和本模块共用它，所以换模和停服影响所有客户端。
+/// 换模走服务自己的管理协议；启停走运行区里的脚本，启动前先把脚本同步成本版本带的那份。
 ///
 /// 对话不走这里：对话就是普通供应商 <c>local</c>，走 <see cref="ChatClient"/>。
 /// 代理的地址取 <c>local</c> 供应商的接入点（去掉 <c>/v1</c>），改端口用 <c>ratio.provider.config</c>。
@@ -45,33 +46,35 @@ internal delegate Task<int> ProcessRunner(
 internal sealed class LocalService : IDisposable
 {
     /// <summary>服务目录的默认位置；环境变量 <c>RATIO_LOCAL_ROOT</c> 可改。</summary>
-    internal const string DefaultRoot = @"F:\LinuxModuleServices";
+    internal const string DefaultRoot = @"F:\ModuleServicesData\Ratio";
 
     /// <summary>服务跑在哪个 WSL 发行版里；与服务自带的 start-wsl-model-service.ps1 一致。</summary>
     private const string Distro = "Ubuntu";
 
     private static readonly (string Name, string Url)[] OtherListeners =
     [
-        ("实验端点 b-code /completion（18765）", "http://127.0.0.1:18765/health"),
-        ("Ollama（11434，已被统一服务取代）", "http://127.0.0.1:11434/api/version"),
+        // Windows 版 Ollama 与统一服务共用 F:\Models\Ollama，在跑会抢模型库；启动脚本会先停掉它。
+        ("Windows 版 Ollama（11434）", "http://127.0.0.1:11434/api/version"),
     ];
 
     private readonly Func<string> _endpoint;
     private readonly HttpClient _http;
     private readonly ProcessRunner _run;
+    private readonly Func<IReadOnlyList<ServiceFile>> _bundle;
 
     public LocalService(ProviderStore store)
-        : this(() => store.Resolve(ProviderStore.LocalProvider).BaseUrl, new HttpClient(), RunProcessAsync, null)
+        : this(() => store.Resolve(ProviderStore.LocalProvider).BaseUrl, new HttpClient(), RunProcessAsync, null, ServiceBundle.Load)
     {
     }
 
-    /// <summary>测试用：注入接入点、传输、进程与服务目录。</summary>
-    internal LocalService(Func<string> endpoint, HttpClient http, ProcessRunner run, string? root)
+    /// <summary>测试用：注入接入点、传输、进程、服务目录与服务文件。</summary>
+    internal LocalService(Func<string> endpoint, HttpClient http, ProcessRunner run, string? root, Func<IReadOnlyList<ServiceFile>>? bundle = null)
     {
         _endpoint = endpoint;
         _http = http;
         _http.Timeout = Timeout.InfiniteTimeSpan;
         _run = run;
+        _bundle = bundle ?? (() => []);
         Root = root ?? ReadRoot();
     }
 
@@ -128,14 +131,24 @@ internal sealed class LocalService : IDisposable
     }
 
     /// <summary>
-    /// 起服务：已在跑就直接回状态；否则执行服务自带的 Windows 启动脚本
+    /// 起服务：已在跑就直接回状态；否则先把本版本带的服务脚本同步到运行区，再执行其中的 Windows 启动脚本
     /// （它会先让出 Windows 版 Ollama 占着的模型库，再在 WSL 里起模型与代理），然后等代理答话。
+    /// 只在没在跑时同步：正在跑的服务换脚本，停服时就会用上一半新一半旧的那套。
     /// </summary>
     public async Task<(LocalStatus Status, bool Started)> StartAsync(int timeoutSeconds, IProgress<string>? progress, CancellationToken cancellation)
     {
         var status = await StatusAsync(cancellation).ConfigureAwait(false);
         if (status.Running)
             return (status, false);
+
+        var files = _bundle();
+        if (files.Count > 0)
+        {
+            var written = ServiceBundle.Deploy(Root, files);
+            progress?.Report(written == 0
+                ? $"服务脚本已是本版本（{files.Count} 个文件）"
+                : $"已把 {written}/{files.Count} 个服务文件同步到 {Root}");
+        }
 
         var script = Path.Combine(Root, "scripts", "start-wsl-model-service.ps1");
         if (!File.Exists(script))

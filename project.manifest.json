@@ -15,7 +15,7 @@
       "ai-module"
     ],
     "status": "active",
-    "version": "0.6.0",
+    "version": "0.7.0",
     "branch": "main"
   },
   "paths": {
@@ -23,11 +23,13 @@
       "b-Office",
       "b-Code/Ratio",
       "b-Code/Ratio.Tests",
-      "b-Code"
+      "b-Code",
+      "b-Code-Service"
     ],
     "sourceRoots": [
       "b-Code/Ratio",
-      "b-Code/Ratio.Tests"
+      "b-Code/Ratio.Tests",
+      "b-Code-Service"
     ],
     "generatedRoots": [
       "b-Code/**/bin",
@@ -63,7 +65,7 @@
     "DeepSeek 开放平台：https://api.deepseek.com",
     "博查 Web Search API：https://api.bochaai.com（ratio.chat.* web=true 时代模型搜索）",
     "阿里云百炼 DashScope OpenAI 兼容接口：https://dashscope.aliyuncs.com/compatible-mode/v1（images= 时的识图供应商 qwen）",
-    "本机统一推理服务 F:\\LinuxModuleServices（WSL：llama-server 18769 + C++ 代理 11435，OpenAI 兼容；供应商 local 与 ratio.local.*），目录可由环境变量 RATIO_LOCAL_ROOT 改"
+    "本机推理服务运行区 F:/ModuleServicesData/Ratio（F 盘特例，RATIO_LOCAL_ROOT 可改）：WSL Ubuntu、编译产物与 CUDA 运行库、KV 快照；模型在 F:/Models。源码在 b-Code-Service，由 ratio.local.start 部署"
   ],
   "contextExclusions": [
     "z-Publish/**",

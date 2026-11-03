@@ -1,0 +1,280 @@
+{
+  "schema_version": 1,
+  "catalog_id": "linux-local-module-services",
+  "updated_at": "2026-11-03",
+  "codex": {
+    "model_catalog": "/media/cyx3705/系统/ModuleServicesData/Ratio/linux-codex/qwen-catalog.json",
+    "profiles": {
+      "sub2api": "/home/cyx3705/.codex/sub2api.config.toml",
+      "base": "/home/cyx3705/.codex/config.toml",
+      "local_ollama": "/home/cyx3705/.codex/local-qwen.config.toml"
+    },
+    "wire_api": "responses",
+    "prefix_cache": {
+      "root": "/media/cyx3705/系统/ModuleServicesData/Ratio/prefix-cache",
+      "manager": "/media/cyx3705/系统/ModuleServicesData/Ratio/scripts/prefix_cache.py",
+      "max_bytes": 40000000000,
+      "policy": "weighted_lfu",
+      "weight_increment_per_use": 1,
+      "eviction_order": [
+        "weight_asc",
+        "last_used_asc",
+        "size_desc"
+      ],
+      "reserve_free_bytes": 2000000000
+    }
+  },
+  "providers": [
+    {
+      "id": "sub2api-local",
+      "kind": "local-relay",
+      "display_name": "Sub2API Local",
+      "base_url": "http://127.0.0.1:18080",
+      "wire_api": "responses",
+      "requires_openai_auth": true,
+      "auth_ref": "file:/media/cyx3705/系统/KEY/codex/sub2api.key",
+      "model_discovery": {
+        "url": "http://127.0.0.1:18080/v1/models",
+        "auth_ref": "file:/media/cyx3705/系统/KEY/codex/sub2api.key"
+      },
+      "health": {
+        "url": "http://127.0.0.1:18080/health",
+        "method": "GET"
+      },
+      "runtime": {
+        "docker_service": "sub2api",
+        "restart_policy": "unless-stopped"
+      }
+    },
+    {
+      "id": "remote-relay",
+      "kind": "remote-relay",
+      "display_name": "Remote Relay",
+      "base_url": "http://172.93.218.157:8080/v1",
+      "wire_api": "responses",
+      "requires_openai_auth": true,
+      "auth_ref": "external-config",
+      "model_discovery": {
+        "url": "http://172.93.218.157:8080/v1/models",
+        "auth_ref": "external-config"
+      },
+      "health": {
+        "url": "http://172.93.218.157:8080/v1/models",
+        "method": "GET",
+        "auth_required": true
+      }
+    },
+    {
+      "id": "local-ollama-runtime",
+      "kind": "local-model-runtime",
+      "display_name": "Local Ollama model switch service",
+      "runtime": {
+        "systemd_user_unit": "codex-local-ollama.service",
+        "binary": "/media/cyx3705/系统/ModuleServicesData/Ratio/linux-ollama/bin/ollama",
+        "models_root": "/media/cyx3705/系统/Models/Ollama",
+        "max_loaded_models": 1,
+        "memory_mode": "gpu_cpu_offload"
+      },
+      "base_url": "http://127.0.0.1:11434/v1",
+      "wire_api": "responses",
+      "requires_openai_auth": false,
+      "model_discovery": {
+        "url": "http://127.0.0.1:11434/v1/models"
+      },
+      "health": {
+        "url": "http://127.0.0.1:11434/api/version",
+        "method": "GET"
+      }
+    },
+    {
+      "id": "local-ai-cache-proxy",
+      "kind": "local-cache-proxy",
+      "display_name": "Local AI C++ streaming proxy",
+      "base_url": "http://127.0.0.1:11435/v1",
+      "wire_api": "responses",
+      "requires_openai_auth": false,
+      "scope": "local-ai-only",
+      "upstream": "http://127.0.0.1:18769",
+      "runtime": {
+        "script": "scripts/wsl-model-service.sh",
+        "binary": "linux-cache/echo-kv-build/build/echo-proxy",
+        "source": "scripts/echo-kv/echo-proxy.cpp",
+        "build": "bash scripts/echo-kv/build.sh",
+        "control_plane": "scripts/model_switch.py (on demand), scripts/kv_disk_cache.py (watcher)",
+        "inference_language": "C++",
+        "request_disk_alignment": false
+      },
+      "health": {
+        "url": "http://127.0.0.1:11435/cache/stats",
+        "method": "GET"
+      },
+      "model_discovery": {
+        "url": "http://127.0.0.1:11435/v1/models"
+      }
+    },
+    {
+      "id": "local-speech-runtime",
+      "kind": "local-runtime",
+      "display_name": "Local speech runtime",
+      "runtime": {
+        "models_root": "/media/cyx3705/系统/Models/Speech"
+      }
+    },
+    {
+      "id": "wsl-unified-runtime",
+      "kind": "local-model-runtime",
+      "display_name": "Fast CUDA model with persistent KV cache",
+      "host": "wsl",
+      "base_url": "http://127.0.0.1:18769/v1",
+      "cache_proxy": "http://127.0.0.1:11435/v1",
+      "runtime": {
+        "script": "scripts/wsl-model-service.sh",
+        "windows_launcher": "scripts/start-wsl-model-service.ps1",
+        "binary": "linux-cache/echo-kv-build/build/llama-server",
+        "shared_libraries_root": "linux-ollama/lib/ollama",
+        "extension_source": "scripts/echo-kv",
+        "model_profiles": "config/echo-models.json",
+        "model_controller": "scripts/model_switch.py",
+        "selected_model": "status/active-model.json",
+        "context_scope": "default_35b_profile",
+        "extension_build": "bash scripts/echo-kv/build.sh",
+        "upstream_revision": "9ff0d7e90f0faaa7c16017e6dcf9cf91c50a100e",
+        "source_sha256": "d8552e1b309c1571e49baf7a53d429b9709fa0c1d6907c446f6cecb87087d07b",
+        "models_root": "Models/Ollama",
+        "replaces": "LocalModelServices/llama-runtime/llama-server.exe",
+        "backend": "CUDA0",
+        "launcher": "scripts/fast-path-35b.sh",
+        "context": 262144,
+        "cpu_moe_layers": 30
+      }
+    }
+  ],
+  "models": [
+    {
+      "id": "qwen3.5-35b-a3b-q4_K_M",
+      "display_name": "Local Qwen3.5 35B Q4",
+      "provider_id": "local-ollama-runtime",
+      "status": "available",
+      "format": "gguf",
+      "quantization": "Q4_K_M",
+      "context_window": 262144,
+      "model_path": "/media/cyx3705/系统/Models/Ollama/blobs/sha256-82cfd9a4c8343580c87b2557b3b5de744f171d4f077c61f0e519cf0a92a8500b",
+      "server_url": "http://127.0.0.1:11434",
+      "codex_base_url": "http://127.0.0.1:11435/v1",
+      "codex_profile": "/home/cyx3705/.codex/local-qwen.config.toml",
+      "server_model": "qwen3.5:35b-a3b-q4_K_M"
+    },
+    {
+      "id": "qwen3.5-35b-a3b-q8_0",
+      "display_name": "Local Qwen3.5 35B Q8",
+      "provider_id": "local-model-files",
+      "status": "installed",
+      "format": "gguf",
+      "quantization": "Q8_0",
+      "context_window": 262144,
+      "model_path": "/media/cyx3705/系统/Models/GGUF/Qwen3.5-35B-A3B-Q8_0.gguf"
+    },
+    {
+      "id": "qwen3.5-27b-q4",
+      "display_name": "Local Qwen3.5 27B Q4",
+      "provider_id": "local-ollama-runtime",
+      "status": "available",
+      "format": "gguf",
+      "quantization": "Q4",
+      "context_window": 262144,
+      "ollama_manifest": "/media/cyx3705/系统/Models/Ollama/manifests/registry.ollama.ai/library/qwen3.5/27b",
+      "model_blob": "/media/cyx3705/系统/Models/Ollama/blobs/sha256-c7e0e920a0948849beb7074d8368cbd5ac6825fcd1f2450cf851276325d8a6a5.part",
+      "codex_base_url": "http://127.0.0.1:11435/v1",
+      "server_model": "qwen3.5:27b"
+    },
+    {
+      "id": "ollama-installed-models",
+      "display_name": "Ollama installed model set",
+      "provider_id": "local-ollama-runtime",
+      "status": "inventory",
+      "format": "ollama-blobs",
+      "models_root": "/media/cyx3705/系统/Models/Ollama",
+      "manifest_root": "/media/cyx3705/系统/Models/Ollama/manifests"
+    },
+    {
+      "id": "gemma4-12b",
+      "display_name": "Gemma4 12B",
+      "provider_id": "local-ollama-runtime",
+      "status": "installed",
+      "format": "ollama",
+      "ollama_manifest": "/media/cyx3705/系统/Models/Ollama/manifests/registry.ollama.ai/library/gemma4/12b",
+      "model_blob": "/media/cyx3705/系统/Models/Ollama/blobs/sha256-bb722270d54346adc198f213851dbe0207e87c3ecf2a0aff4d92262726215391",
+      "codex_base_url": "http://127.0.0.1:11435/v1",
+      "server_model": "gemma4:12b"
+    },
+    {
+      "id": "qwen3-8b",
+      "display_name": "Qwen3 8B",
+      "provider_id": "local-ollama-runtime",
+      "status": "installed",
+      "format": "ollama",
+      "ollama_manifest": "/media/cyx3705/系统/Models/Ollama/manifests/registry.ollama.ai/library/qwen3/8b",
+      "model_blob": "/media/cyx3705/系统/Models/Ollama/blobs/sha256-a3de86cd1c132c822487ededd47a324c50491393e6565cd14bafa40d0b8e686f",
+      "codex_base_url": "http://127.0.0.1:11435/v1",
+      "server_model": "qwen3:8b"
+    },
+    {
+      "id": "speech-models",
+      "display_name": "Local speech model set",
+      "provider_id": "local-speech-runtime",
+      "status": "inventory",
+      "models_root": "/media/cyx3705/系统/Models/Speech"
+    }
+  ],
+  "storage": {
+    "models_root": "/media/cyx3705/系统/Models",
+    "wsl_models_root": "/mnt/f/Models",
+    "runtime_root": "/media/cyx3705/系统/ModuleServicesData/Ratio",
+    "wsl_runtime_root": "/mnt/f/ModuleServicesData/Ratio",
+    "aggregator_root": "/media/cyx3705/系统/ModuleServicesData/Ratio",
+    "host": "wsl",
+    "owner": "2026-030-Ratio（源码 b-Code-Service，运行区 <盘>/ModuleServicesData/Ratio，由 ratio.local.start 部署）"
+  },
+  "clients": {
+    "echo": {
+      "base_url": "http://127.0.0.1:11435/v1",
+      "capabilities_url": "http://127.0.0.1:11435/v1/echo/capabilities",
+      "completion_url": "http://127.0.0.1:11435/completion",
+      "model": "qwen3.5:35b-a3b-q4_K_M",
+      "wire_api": "chat-completions-and-raw-logprobs",
+      "client_header": {
+        "X-Local-AI-Client": "echo"
+      },
+      "model_lifecycle": "provider_owned",
+      "model_management": {
+        "catalog_url": "http://127.0.0.1:11435/v1/echo/models",
+        "switch_url": "http://127.0.0.1:11435/v1/echo/model",
+        "scope": "all_shared_clients",
+        "max_loaded_models": 1,
+        "persistent_job": "status/model-switch.json",
+        "failure_policy": "restore_previous_model",
+        "validation": "python3 -m unittest discover -s scripts -p test_model_switch.py; python3 scripts/verify_model_switch.py --live --out status/echo-model-switch-acceptance.json; Echo manifest testModelUI"
+      },
+      "shared_native_sequence_fork": true,
+      "shared_kv": {
+        "operation_url": "http://127.0.0.1:11435/v1/kv/op",
+        "capability_detection": "required_at_runtime",
+        "model_instances": 1,
+        "provider_parallel_slots": 2,
+        "sequence_limit": 1,
+        "generation_streaming": true,
+        "generation_scheduling": "persistent_sse_local_a_priority_bounded_b_slices",
+        "snapshot_admission": "all_public_slots_and_native_leases_idle_rechecked_on_model_queue",
+        "branch_batch_size": 1,
+        "max_tokens": 8192,
+        "max_suffix_tokens": 2048,
+        "checkpoint_limit": 8,
+        "idle_expiry_seconds": 90,
+        "hybrid_fork": "shared_attention_and_recurrent_checkpoint_with_bounded_left_replay",
+        "page_sequence_persistence": false,
+        "validation": "python3 scripts/verify_echo_shared_kv.py --live --out status/echo-shared-kv.json; Echo manifest testSharedKVLive; scripts/echo-kv/verify_scheduler.py --live and bench_scheduler.py --live using Echo runtime"
+      },
+      "validation": "python3 scripts/echo-kv/test_proxy.py; python3 scripts/test_kv_disk_cache.py; python3 -m unittest discover -s scripts/echo-kv -q; Echo manifest testSharedKVLive; python3 scripts/echo-kv/bench_proxy.py --live --out status/echo-cpp-proxy-benchmark.json"
+    }
+  }
+}

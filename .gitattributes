@@ -6,3 +6,6 @@
 
 # Published package hashes cover exact bytes; Git must not normalize package content.
 z-Publish/** binary
+
+# 本机推理服务源码按原字节入库：shell 脚本必须保持 LF，部署时原样写到运行区。
+b-Code-Service/** -text

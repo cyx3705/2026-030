@@ -32,6 +32,7 @@ var tests = new (string Name, Func<Task> Run)[]
     ("local start and stop", TestLocalStartStopAsync),
     ("local commands", TestLocalCommandsAsync),
     ("adopt previous store", TestAdoptPreviousStoreAsync),
+    ("service bundle", TestServiceBundleAsync),
 };
 
 // 联网实调默认不跑：它要花钱、要外网，且依赖本机已配置的真实密钥。
@@ -919,12 +920,16 @@ static async Task TestLocalStartStopAsync()
                 running = arguments[^1] != "stop";
                 return Task.FromResult(0);
             },
-            root)
+            root,
+            () => [new ServiceFile("config/x.json", "{}"u8.ToArray())])
         { PollInterval = TimeSpan.FromMilliseconds(1) };
 
-        var (status, started) = await local.StartAsync(60, null, CancellationToken.None);
+        var progress = new ListProgress();
+        var (status, started) = await local.StartAsync(60, progress, CancellationToken.None);
         True(started && status.Running, "应执行启动脚本并等到代理答话");
         True(runs[0].StartsWith("powershell.exe -NoProfile", StringComparison.Ordinal), runs[0]);
+        True(File.Exists(Path.Combine(root, "config", "x.json")), "启动前应先部署服务文件");
+        True(progress.Items[0].Contains("1/1", StringComparison.Ordinal), progress.Items[0]);
 
         (_, started) = await local.StartAsync(60, null, CancellationToken.None);
         True(!started, "已在运行就不再执行脚本");
@@ -962,6 +967,42 @@ static Task TestLocalCommandsAsync()
     Equal(4, registry.All.Count);
     True(registry.TryGet("ratio.local.status", out var status) && status!.Readonly, "status 是只读");
     True(registry.TryGet("ratio.local.stop", out var stop) && stop!.Level == CommandLevel.Ask, "停服要确认");
+    return Task.CompletedTask;
+}
+
+static Task TestServiceBundleAsync()
+{
+    // 真包：脚本都在、shell 脚本是 LF（CRLF 的 bash 脚本在 WSL 里直接报错）、文档不随包走。
+    var files = ServiceBundle.Load();
+    var names = files.Select(file => file.RelativePath).ToHashSet(StringComparer.Ordinal);
+    foreach (var required in new[]
+             {
+                 "scripts/wsl-model-service.sh", "scripts/start-wsl-model-service.ps1", "scripts/model_switch.py",
+                 "scripts/lib/service-root.sh", "scripts/echo-kv/echo-proxy.cpp", "config/service-catalog.json", "config/echo-models.json",
+             })
+        True(names.Contains(required), $"服务包缺 {required}");
+    True(!names.Any(name => name.EndsWith(".md", StringComparison.Ordinal) || name.Contains("__pycache__", StringComparison.Ordinal)), "文档与缓存不进包");
+    foreach (var file in files.Where(file => file.RelativePath.EndsWith(".sh", StringComparison.Ordinal)))
+        True(!file.Content.Contains((byte)'\r'), $"{file.RelativePath} 必须是 LF");
+
+    var root = Path.Combine(Path.GetTempPath(), "Ratio.Tests", Guid.NewGuid().ToString("N"));
+    try
+    {
+        Directory.CreateDirectory(Path.Combine(root, "status"));
+        File.WriteAllText(Path.Combine(root, "status", "keep.json"), "{}");
+        Equal(files.Count, ServiceBundle.Deploy(root, files));
+        Equal(0, ServiceBundle.Deploy(root, files));
+        File.WriteAllText(Path.Combine(root, "scripts", "model_switch.py"), "changed");
+        Equal(1, ServiceBundle.Deploy(root, files));
+        True(File.Exists(Path.Combine(root, "status", "keep.json")), "部署不删运行区自己的文件");
+        Throws<RatioInputException>(() => ServiceBundle.Deploy(root, [new ServiceFile("../escape.txt", [1])]));
+        Throws<RatioInputException>(() => ServiceBundle.Deploy(root, []));
+    }
+    finally
+    {
+        Directory.Delete(root, recursive: true);
+    }
+
     return Task.CompletedTask;
 }
 

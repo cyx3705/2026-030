@@ -5,7 +5,7 @@
 ## 定位
 
 Ratio（拉丁语「推理、理性」；原名 HistoryApollo，0.6.0 改名）把本机与远端的推理资源变成 HistoryVulcan 指令：
-本机统一推理服务（`F:\LinuxModuleServices`，WSL 里的 llama-server 加 C++ 代理）是供应商 `local`，免密钥，
+本机统一推理服务（WSL 里的 llama-server 加 C++ 代理，0.7.0 起源码在本仓 `b-Code-Service/`）是供应商 `local`，免密钥，
 启停与换模走 `ratio.local.*`；远端内置 DeepSeek，可按需联网搜索（博查），可附本机图片交给识图模型（内置通义千问）。
 每一轮往返实时写进控制台。
 
@@ -60,6 +60,7 @@ ratio.chat.ask prompt=这张图纸是什么零件 images=D:\图纸.png
 | --- | --- |
 | `b-Code/Ratio/` | 模块源码、manifest 与 `eng/` 构建脚本 |
 | `b-Code/Ratio.Tests/` | 自动验证 |
+| `b-Code-Service/` | 本机推理服务源码（WSL 脚本、配置、C++ 代理与 KV 扩展），随 DLL 发布、启动时部署到运行区 |
 | `b-Code/` | 项目合同检查 |
 | `b-Office/` | `current/现行约定.md`，唯一的长期文档 |
 | `z-Publish/` | 正式快照与 `history/` 归档，由宿主管线写入 |
@@ -85,7 +86,7 @@ powershell -NoProfile -ExecutionPolicy Bypass -File .\b-Code\Test-ProjectContrac
 - 密钥只落在本机 `%AppData%\HistoryVulcan\ModuleData\Ratio\providers.json`（宿主给的数据目录），或由环境变量提供（优先）：
   DeepSeek 为 `RATIO_DEEPSEEK_KEY` / `DEEPSEEK_API_KEY`，博查为 `RATIO_BOCHA_KEY` / `BOCHA_API_KEY`，通义千问为 `RATIO_QWEN_KEY` / `QWEN_API_KEY`。
   改名后首次装载会把旧 `ModuleData\HistoryApollo\providers.json` 复制过来，不必重配。
-- 本机推理服务被 Echo、Codex 和本模块共用，同一时间只装一个模型：换模、停服对所有客户端生效。服务目录默认 `F:\LinuxModuleServices`，可用 `RATIO_LOCAL_ROOT` 改。
+- 本机推理服务被 Echo、Codex 和本模块共用，同一时间只装一个模型：换模、停服对所有客户端生效。运行区是 F 盘特例 `F:\ModuleServicesData\Ratio`（编译产物、CUDA 运行库、KV 快照、状态与日志），可用 `RATIO_LOCAL_ROOT` 改；模型统一在 `F:\Models`。
 - **密钥不入库。** 项目合同检查会扫描全仓，拒绝任何形如 `sk-<长串>` 的真实密钥。
 - 嵌套调用的过程输出也逐轮进控制台；消费方不要再从载荷复述调用过程。
 

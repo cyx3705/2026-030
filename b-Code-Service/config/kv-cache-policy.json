@@ -1,0 +1,10 @@
+{
+  "save_interval_seconds": 60,
+  "poll_seconds": 2,
+  "retain_latest": 2,
+  "tiers": [
+    {"max_age_seconds": 3600, "bucket_seconds": 300},
+    {"max_age_seconds": 86400, "bucket_seconds": 3600},
+    {"max_age_seconds": 604800, "bucket_seconds": 86400}
+  ]
+}
