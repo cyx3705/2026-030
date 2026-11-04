@@ -21,6 +21,7 @@ public sealed class RatioModule : IModuleContextAware, IDisposable
     private ChatClient? _client;
     private WebSearchClient? _search;
     private LocalService? _local;
+    private LocalInference? _inference;
 
     /// <summary>宿主在装载时注入权威指令总线与命令注册器。</summary>
     public void Attach(IModuleContext context)
@@ -34,9 +35,12 @@ public sealed class RatioModule : IModuleContextAware, IDisposable
             _client?.Dispose();
             _search?.Dispose();
             _local?.Dispose();
+            _inference?.Dispose();
             var client = new ChatClient();
             var search = new WebSearchClient(RatioRuntime.Providers);
             var local = new LocalService(RatioRuntime.Providers);
+            var inference = new LocalInference(RatioRuntime.Providers);
+            _inference = inference;
             _client = client;
             _search = search;
             _local = local;
@@ -44,6 +48,7 @@ public sealed class RatioModule : IModuleContextAware, IDisposable
             {
                 RatioCommandCatalog.Register(registry, RatioRuntime.Providers, client, search);
                 RatioLocalCommands.Register(registry, local);
+                RatioInferenceCommands.Register(registry, RatioRuntime.Providers, client, inference);
             });
         }
 
@@ -56,8 +61,11 @@ public sealed class RatioModule : IModuleContextAware, IDisposable
         ChatClient? client;
         WebSearchClient? search;
         LocalService? local;
+        LocalInference? inference;
         lock (_gate)
         {
+            inference = _inference;
+            _inference = null;
             client = _client;
             search = _search;
             local = _local;
@@ -69,5 +77,6 @@ public sealed class RatioModule : IModuleContextAware, IDisposable
         client?.Dispose();
         search?.Dispose();
         local?.Dispose();
+        inference?.Dispose();
     }
 }

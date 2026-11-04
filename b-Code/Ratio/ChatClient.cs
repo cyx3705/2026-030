@@ -30,6 +30,12 @@ internal sealed record ChatOptions
     /// <summary>要求服务端返回严格 JSON 对象（DeepSeek 的 <c>response_format=json_object</c>）。</summary>
     public bool JsonOutput { get; init; }
 
+    /// <summary>JSON Schema（0.8.0）：服务端按它约束输出（<c>response_format=json_schema</c>，strict）。优先于 <see cref="JsonOutput"/>。</summary>
+    public JsonObject? Schema { get; init; }
+
+    /// <summary>为 false 时请求带 <c>chat_template_kwargs.enable_thinking=false</c>（本机 Qwen 等关思考）；null 不写。</summary>
+    public bool? Think { get; init; }
+
     /// <summary>每一次 HTTP 请求的超时秒数。联网时一次调用有多轮请求，每轮各自计时。</summary>
     public int TimeoutSeconds { get; init; } = 120;
 
@@ -281,7 +287,7 @@ internal sealed class ChatClient : IDisposable
     /// 两者都没有时问服务要——本机推理服务同一时间只装一个模型，它报几个就只能是那一个；
     /// 报出多个就猜不得，仍要调用方指定。
     /// </summary>
-    private async Task<string> ResolveModelAsync(ProviderProfile provider, ChatOptions options, CancellationToken cancellation)
+    internal async Task<string> ResolveModelAsync(ProviderProfile provider, ChatOptions options, CancellationToken cancellation)
     {
         var model = string.IsNullOrWhiteSpace(options.Model) ? provider.Model : options.Model.Trim();
         if (!string.IsNullOrWhiteSpace(model))
@@ -320,7 +326,7 @@ internal sealed class ChatClient : IDisposable
         return parts;
     }
 
-    private static JsonObject BuildBody(string model, JsonArray conversation, ChatOptions options)
+    internal static JsonObject BuildBody(string model, JsonArray conversation, ChatOptions options)
     {
         var body = new JsonObject
         {
@@ -333,8 +339,21 @@ internal sealed class ChatClient : IDisposable
             body["temperature"] = temperature;
         if (options.MaxTokens is { } maxTokens)
             body["max_tokens"] = maxTokens;
-        if (options.JsonOutput)
+        if (options.Schema is { } schema)
+        {
+            body["response_format"] = new JsonObject
+            {
+                ["type"] = "json_schema",
+                ["json_schema"] = new JsonObject { ["name"] = "ratio_output", ["strict"] = true, ["schema"] = schema.DeepClone() },
+            };
+        }
+        else if (options.JsonOutput)
+        {
             body["response_format"] = new JsonObject { ["type"] = "json_object" };
+        }
+
+        if (options.Think == false)
+            body["chat_template_kwargs"] = new JsonObject { ["enable_thinking"] = false };
         if (options.WebSearch)
             body["tools"] = SearchToolDefinition();
         return body;

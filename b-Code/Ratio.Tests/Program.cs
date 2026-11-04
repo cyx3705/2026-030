@@ -33,6 +33,13 @@ var tests = new (string Name, Func<Task> Run)[]
     ("local commands", TestLocalCommandsAsync),
     ("adopt previous store", TestAdoptPreviousStoreAsync),
     ("service bundle", TestServiceBundleAsync),
+    ("local probs", TestLocalProbsAsync),
+    ("seq choose fallback", TestSeqChooseFallbackAsync),
+    ("seq stream", TestSeqStreamAsync),
+    ("seq stream by steps", TestSeqStreamStepsAsync),
+    ("chat stream", TestChatStreamAsync),
+    ("inference commands", TestInferenceCommandsAsync),
+    ("chat schema and think", TestChatSchemaAsync),
 };
 
 // 联网实调默认不跑：它要花钱、要外网，且依赖本机已配置的真实密钥。
@@ -1065,6 +1072,137 @@ static async Task<T> ThrowsAsync<T>(Func<Task> action)
     }
 
     throw new InvalidOperationException($"期望抛出 {typeof(T).Name}，实际没有抛出");
+}
+
+static async Task TestLocalProbsAsync()
+{
+    using var local = new LocalInference(() => "http://127.0.0.1:11435/v1", FakeTransport.Http((request, body) =>
+    {
+        Equal("http://127.0.0.1:11435/completion", request.RequestUri!.ToString());
+        var json = JsonDocument.Parse(body!).RootElement;
+        Equal(1, json.GetProperty("n_predict").GetInt32());
+        Equal(3, json.GetProperty("n_probs").GetInt32());
+        return (HttpStatusCode.OK, """{"completion_probabilities":[{"top_logprobs":[{"token":" like","logprob":-0.1},{"token":" love","logprob":-2.5}]}]}""");
+    }));
+    var tokens = await local.ProbsAsync("I", 3, null, 10, CancellationToken.None);
+    Equal(2, tokens.Count);
+    Equal(" like", tokens[0].Token);
+}
+
+static async Task TestSeqChooseFallbackAsync()
+{
+    var ops = new List<string>();
+    using var local = new LocalInference(() => "http://127.0.0.1:11435/v1", FakeTransport.Http((_, body) =>
+    {
+        var op = JsonDocument.Parse(body!).RootElement.GetProperty("op").GetString()!;
+        ops.Add(op);
+        return op switch
+        {
+            "create" => (HttpStatusCode.OK, """{"sequence_id":"7","cache_epoch":"e","prefix_tokens":12}"""),
+            "select_text" => (HttpStatusCode.BadRequest, """{"error":{"message":"unknown_echo_operation"}}"""),
+            "prefix" => (HttpStatusCode.OK, """{"prefix_tokens":12,"remainder":""}"""),
+            "tokenize" => (HttpStatusCode.OK, """{"tokens":[1,2]}"""),
+            "select" => (HttpStatusCode.OK, """{"results":[{"label":" A","decision_steps":1,"shared_prefix_tokens":12,"replayed_tokens":0}]}"""),
+            "release" => (HttpStatusCode.OK, "{}"),
+            _ => (HttpStatusCode.NotFound, "{}"),
+        };
+    }));
+    var lease = await local.OpenAsync(null, "prompt", CancellationToken.None);
+    Equal(1, local.OpenSequences);
+    var row = await local.ChooseAsync(lease.SequenceId, lease.CacheEpoch, "prompt", "Label:", ["0", " A"], CancellationToken.None);
+    Equal(" A", row["label"]!.GetValue<string>());
+    await local.CloseAsync(lease.SequenceId, lease.CacheEpoch, CancellationToken.None);
+    Equal(0, local.OpenSequences);
+    Equal("create,select_text,prefix,tokenize,select,release", string.Join(",", ops));
+    using var full = new LocalInference(() => "http://x/v1", FakeTransport.Http((_, _) =>
+        (HttpStatusCode.Conflict, """{"error":{"message":"invalid_sequence_size"}}""")));
+    var rejected = await ThrowsAsync<RatioKvException>(() => full.OpenAsync(null, "p", CancellationToken.None));
+    Equal("invalid_sequence_size", rejected.Message);
+}
+
+static async Task<string> DrainAsync(LocalInference local, StreamSession session)
+{
+    var text = new System.Text.StringBuilder();
+    var after = 0;
+    while (true)
+    {
+        var chunk = await local.Streams.ReadAsync(session.Id, after, 2000, CancellationToken.None);
+        text.Append(chunk.Text);
+        after = chunk.Next;
+        if (chunk.Done)
+        {
+            if (chunk.Error != null)
+                throw new InvalidOperationException(chunk.Error);
+            return text.ToString();
+        }
+    }
+}
+
+static async Task TestSeqStreamAsync()
+{
+    const string sse = "data: {\"delta\":\"Hel\"}\n\ndata: {\"delta\":\"lo\",\"done\":true}\n\ndata: [DONE]\n\n";
+    using var local = new LocalInference(() => "http://127.0.0.1:11435/v1", FakeTransport.Http((_, _) => (HttpStatusCode.OK, sse)));
+    Equal("Hello", await DrainAsync(local, local.StreamSequence("1", "e", 16)));
+    Equal(0, local.Streams.Count);
+}
+
+static async Task TestSeqStreamStepsAsync()
+{
+    var step = 0;
+    using var local = new LocalInference(() => "http://127.0.0.1:11435/v1", FakeTransport.Http((_, body) =>
+    {
+        var op = JsonDocument.Parse(body!).RootElement.GetProperty("op").GetString();
+        if (op == "stream")
+            return (HttpStatusCode.BadRequest, """{"error":{"message":"unknown_echo_operation"}}""");
+        step++;
+        return (HttpStatusCode.OK, step < 3 ? "{\"delta\":\"w" + step + " \"}" : """{"done":true}""");
+    }));
+    Equal("w1 w2 ", await DrainAsync(local, local.StreamSequence("1", "e", 16)));
+}
+
+static async Task TestChatStreamAsync()
+{
+    using var scope = new StoreScope();
+    const string sse = "data: {\"choices\":[{\"delta\":{\"content\":\"Hi\"}}]}\n\ndata: {\"choices\":[{\"delta\":{\"content\":\" there\"}}]}\n\ndata: [DONE]\n\n";
+    using var local = new LocalInference(() => "http://127.0.0.1:11435/v1", FakeTransport.Http((_, body) =>
+    {
+        True(body!.Contains("\"stream\":true"), "流式请求要带 stream=true");
+        True(body.Contains("enable_thinking"), "think=false 要关思考");
+        return (HttpStatusCode.OK, sse);
+    }));
+    var profile = scope.Store.Resolve("local");
+    var body = ChatClient.BuildBody("m", new System.Text.Json.Nodes.JsonArray(), new ChatOptions { Think = false });
+    Equal("Hi there", await DrainAsync(local, local.StreamChat(profile, "m", body)));
+}
+
+static Task TestInferenceCommandsAsync()
+{
+    using var scope = new StoreScope();
+    using var client = FakeTransport.Client((_, _) => (HttpStatusCode.OK, "{}"));
+    using var local = new LocalInference(() => "http://127.0.0.1:11435/v1", FakeTransport.Http((_, _) => (HttpStatusCode.OK, "{}")));
+    var registry = new Registrar();
+    RatioInferenceCommands.Register(registry, scope.Store, client, local);
+    string[] expected = ["ratio.local.probs", "ratio.seq.caps", "ratio.seq.open", "ratio.seq.choose", "ratio.seq.stream",
+        "ratio.seq.close", "ratio.chat.stream", "ratio.stream.read", "ratio.stream.cancel"];
+    foreach (var name in expected)
+        True(registry.TryGet(name, out _), $"未注册 {name}");
+    Equal(expected.Length, registry.All.Count);
+    Equal(2, RatioInferenceCommands.ParseLabels("[\"0\",\" A\"]").Count);
+    Throws<RatioInputException>(() => RatioInferenceCommands.ParseLabels("[]"));
+    return Task.CompletedTask;
+}
+
+static Task TestChatSchemaAsync()
+{
+    var schema = RatioCommandCatalog.ParseSchema("""{"type":"object"}""");
+    var body = ChatClient.BuildBody("m", new System.Text.Json.Nodes.JsonArray(), new ChatOptions { Schema = schema, Think = false });
+    Equal("json_schema", body["response_format"]!["type"]!.GetValue<string>());
+    True(body["response_format"]!["json_schema"]!["strict"]!.GetValue<bool>(), "schema 要 strict");
+    Equal(false, body["chat_template_kwargs"]!["enable_thinking"]!.GetValue<bool>());
+    var plain = ChatClient.BuildBody("m", new System.Text.Json.Nodes.JsonArray(), new ChatOptions());
+    True(plain["chat_template_kwargs"] is null && plain["response_format"] is null, "缺省不写这两项");
+    Throws<RatioInputException>(() => RatioCommandCatalog.ParseSchema("[1]"));
+    return Task.CompletedTask;
 }
 
 /// <summary>把 ProviderStore 指到一次性目录，测试不碰本机 AppData 里的真实密钥。</summary>

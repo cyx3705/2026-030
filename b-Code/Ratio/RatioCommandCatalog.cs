@@ -298,13 +298,15 @@ internal static class RatioCommandCatalog
         var profile = images.Count > 0
             ? store.ResolveVision(context.GetString("provider"))
             : store.ResolveChat(context.GetString("provider"));
-        var jsonOutput = context.GetBool("json", false);
+        var jsonOutput = context.GetBool("json", false) || context.Has("schema");
         var options = new ChatOptions
         {
             Model = context.GetString("model"),
             Temperature = context.Has("temperature") ? context.GetDouble("temperature", 1.0) : null,
             MaxTokens = context.Has("maxtokens") ? context.GetInt("maxtokens", 0) : null,
-            JsonOutput = jsonOutput,
+            JsonOutput = jsonOutput || context.Has("schema"),
+            Schema = ParseSchema(context.GetString("schema")),
+            Think = context.Has("think") ? context.GetBool("think", true) : null,
             TimeoutSeconds = context.GetInt("timeout", 120),
             WebSearch = context.GetBool("web", false),
         };
@@ -367,6 +369,17 @@ internal static class RatioCommandCatalog
         },
         new ParameterSpec
         {
+            Name = "schema",
+            Description = "JSON Schema 对象文本，例如 {\"type\":\"object\",\"properties\":{\"label\":{\"type\":\"string\",\"enum\":[\"A\",\"B\"]}},\"required\":[\"label\"]}；服务端按它严格约束输出（json_schema strict），隐含 json=true。",
+        },
+        new ParameterSpec
+        {
+            Name = "think",
+            Description = "是否允许模型先思考；写 false 时关掉本机 Qwen/Gemma 的思考块（chat_template_kwargs.enable_thinking=false），省略时按服务端默认。",
+            Type = ParamType.Bool,
+        },
+        new ParameterSpec
+        {
             Name = "web",
             Description = $"允许模型按需联网搜索（博查）：搜不搜、搜什么由模型决定，每次调用最多 {ChatClient.MaxSearches} 次，搜索另行计费。",
             Type = ParamType.Bool,
@@ -374,6 +387,22 @@ internal static class RatioCommandCatalog
         },
         TimeoutParameter(),
     ];
+
+    /// <summary>解析 <c>schema=</c>；不是 JSON 对象时按输入错误拒绝。</summary>
+    internal static System.Text.Json.Nodes.JsonObject? ParseSchema(string? text)
+    {
+        if (string.IsNullOrWhiteSpace(text))
+            return null;
+        try
+        {
+            return System.Text.Json.Nodes.JsonNode.Parse(text) as System.Text.Json.Nodes.JsonObject
+                ?? throw new RatioInputException("schema 必须是 JSON 对象");
+        }
+        catch (JsonException ex)
+        {
+            throw new RatioInputException($"schema 不是合法 JSON：{ex.Message}");
+        }
+    }
 
     private static ParameterSpec ProviderParameter(int? position) => new()
     {
