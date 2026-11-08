@@ -49,6 +49,7 @@ public sealed class RatioModule : IModuleContextAware, IDisposable
                 RatioCommandCatalog.Register(registry, RatioRuntime.Providers, client, search);
                 RatioLocalCommands.Register(registry, local);
                 RatioInferenceCommands.Register(registry, RatioRuntime.Providers, client, inference);
+                RatioEmbedCommands.Register(registry, RatioRuntime.Providers, client);
             });
         }
 

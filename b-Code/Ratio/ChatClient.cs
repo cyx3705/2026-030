@@ -258,6 +258,79 @@ internal sealed class ChatClient : IDisposable
             .ToList();
     }
 
+    /// <summary>
+    /// 一组文本转向量（0.9.0）：OpenAI 兼容的 <c>/embeddings</c>，按 <paramref name="batchSize"/> 分批顺序发，结果按输入顺序拼回。
+    /// </summary>
+    /// <remarks>
+    /// 分批是供应商的硬限（通义 text-embedding-v4 一次最多 10 条），不是重试——任何一批失败整次失败，不回半截向量。
+    /// </remarks>
+    public async Task<EmbedOutcome> EmbedAsync(
+        ProviderProfile provider,
+        string model,
+        IReadOnlyList<string> texts,
+        int? dimensions,
+        int batchSize,
+        int timeoutSeconds,
+        CancellationToken cancellation)
+    {
+        RequireKey(provider);
+        var started = Environment.TickCount64;
+        var vectors = new List<float[]>(texts.Count);
+        var totalTokens = 0;
+        string? servedModel = null;
+        for (var offset = 0; offset < texts.Count; offset += batchSize)
+        {
+            var batch = texts.Skip(offset).Take(batchSize).ToArray();
+            var body = new Dictionary<string, object?>
+            {
+                ["model"] = model,
+                ["input"] = batch,
+                ["encoding_format"] = "float",
+            };
+            if (dimensions is { } size)
+                body["dimensions"] = size;
+
+            var payload = await RatioHttp.SendAsync(
+                _http,
+                provider.Name,
+                HttpMethod.Post,
+                provider.BaseUrl + "/embeddings",
+                provider.ApiKey,
+                JsonSerializer.Serialize(body),
+                timeoutSeconds,
+                cancellation).ConfigureAwait(false);
+
+            using var document = JsonDocument.Parse(payload);
+            var root = document.RootElement;
+            if (!root.TryGetProperty("data", out var data) || data.ValueKind != JsonValueKind.Array)
+                throw new RatioRemoteException($"{provider.Name} 的向量回执缺少 data 数组");
+            var rows = data.EnumerateArray()
+                .Select((item, position) => (
+                    Index: item.TryGetProperty("index", out var index) && index.ValueKind == JsonValueKind.Number ? index.GetInt32() : position,
+                    Vector: item.TryGetProperty("embedding", out var embedding) && embedding.ValueKind == JsonValueKind.Array
+                        ? embedding.EnumerateArray().Select(value => value.GetSingle()).ToArray()
+                        : throw new RatioRemoteException($"{provider.Name} 的向量回执缺少 embedding")))
+                .OrderBy(row => row.Index)
+                .ToList();
+            if (rows.Count != batch.Length)
+                throw new RatioRemoteException($"{provider.Name} 送 {batch.Length} 条只回了 {rows.Count} 条向量");
+            vectors.AddRange(rows.Select(row => row.Vector));
+            if (root.TryGetProperty("usage", out var usage) && usage.TryGetProperty("total_tokens", out var tokens)
+                && tokens.ValueKind == JsonValueKind.Number)
+                totalTokens += tokens.GetInt32();
+            if (root.TryGetProperty("model", out var served) && served.ValueKind == JsonValueKind.String)
+                servedModel ??= served.GetString();
+        }
+
+        return new EmbedOutcome(
+            provider.Name,
+            servedModel ?? model,
+            vectors.Count == 0 ? 0 : vectors[0].Length,
+            vectors,
+            totalTokens,
+            Environment.TickCount64 - started);
+    }
+
     /// <summary>把搜索结果写成交给模型的 tool 消息正文。</summary>
     internal static string FormatHits(string query, IReadOnlyList<WebSearchHit> hits)
     {

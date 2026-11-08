@@ -40,6 +40,7 @@ var tests = new (string Name, Func<Task> Run)[]
     ("chat stream", TestChatStreamAsync),
     ("inference commands", TestInferenceCommandsAsync),
     ("chat schema and think", TestChatSchemaAsync),
+    ("embed texts", TestEmbedTextsAsync),
 };
 
 // 联网实调默认不跑：它要花钱、要外网，且依赖本机已配置的真实密钥。
@@ -326,6 +327,51 @@ static Task TestResultFooterAsync()
     True(plain.StartsWith("{\"a\":1}", StringComparison.Ordinal), "正文必须在最前");
     True(plain.Contains("5+7=12 tokens", StringComparison.Ordinal), "脚注应报告用量");
     return Task.CompletedTask;
+}
+
+// 0.9.0：向量。分批（每批 10 条）、按 index 拼回输入顺序、dimensions 原样下发；指令默认走 qwen，Data 是 JSON 文本。
+static async Task TestEmbedTextsAsync()
+{
+    using var scope = new StoreScope();
+    scope.Store.SetKey("qwen", "sk-test");
+    var batches = new List<int>();
+    using var client = FakeTransport.Client((request, body) =>
+    {
+        Equal("https://dashscope.aliyuncs.com/compatible-mode/v1/embeddings", request.RequestUri!.ToString());
+        using var sent = JsonDocument.Parse(body!);
+        Equal("text-embedding-v4", sent.RootElement.GetProperty("model").GetString());
+        Equal(4, sent.RootElement.GetProperty("dimensions").GetInt32());
+        var inputs = sent.RootElement.GetProperty("input").EnumerateArray().Select(item => item.GetString()!).ToList();
+        batches.Add(inputs.Count);
+        // 故意倒序回，验证按 index 拼回。
+        var rows = inputs.Select((text, index) => $"{{\"index\":{index},\"embedding\":[{int.Parse(text[1..])},0,0,1]}}").Reverse();
+        return (HttpStatusCode.OK, $"{{\"model\":\"text-embedding-v4\",\"data\":[{string.Join(",", rows)}],\"usage\":{{\"total_tokens\":{inputs.Count}}}}}");
+    });
+
+    var registry = new Registrar();
+    RatioEmbedCommands.Register(registry, scope.Store, client);
+    True(registry.TryGet("ratio.embed.texts", out var embed), "缺少 ratio.embed.texts");
+    True(!embed!.Readonly, "向量是计费请求，不应声明为只读");
+
+    var texts = JsonSerializer.Serialize(Enumerable.Range(0, 12).Select(index => $"t{index}"));
+    var result = await embed.Handler(new CommandContext(embed,
+        new Dictionary<string, string> { ["texts"] = texts, ["dimensions"] = "4" }, "test", null, CancellationToken.None));
+    True(result.Success, result.Message);
+    True(batches.SequenceEqual([10, 2]), $"每批最多 10 条，实际 {string.Join(",", batches)}");
+    using var data = JsonDocument.Parse((string)result.Data!);
+    var vectors = data.RootElement.GetProperty("vectors").EnumerateArray().ToList();
+    Equal(12, vectors.Count);
+    Equal(11f, vectors[11][0].GetSingle());
+    Equal(4, data.RootElement.GetProperty("dimensions").GetInt32());
+    Equal(12, data.RootElement.GetProperty("usage").GetProperty("totalTokens").GetInt32());
+    True(!result.Message.Contains('[', StringComparison.Ordinal), "正文不放向量");
+
+    var bad = await embed.Handler(new CommandContext(embed,
+        new Dictionary<string, string> { ["texts"] = "[\"a\",\"\"]" }, "test", null, CancellationToken.None));
+    True(!bad.Success && bad.Message.Contains("第 2 条", StringComparison.Ordinal), $"空文本必须拒绝: {bad.Message}");
+    var noModel = await embed.Handler(new CommandContext(embed,
+        new Dictionary<string, string> { ["texts"] = "[\"a\"]", ["provider"] = "deepseek" }, "test", null, CancellationToken.None));
+    True(!noModel.Success && noModel.Message.Contains("model=", StringComparison.Ordinal), $"没有内置向量模型必须要求 model=: {noModel.Message}");
 }
 
 static Task TestCommandRegistrationAsync()
