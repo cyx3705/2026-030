@@ -45,6 +45,7 @@ internal static class RatioEmbedCommands
             CommandClass = "embed",
             Summary = "把一组文本转成向量，供语义检索用；默认通义千问 text-embedding-v4，按输入顺序返回。",
             Example = "ratio.embed.texts texts=[\"新建项目\",\"创建新项目并初始化仓库\"] dimensions=512",
+            // 0.9.0 实调：dimensions=8 被通义 400 拒（只认档位），所以示例写 512。
             Level = CommandLevel.Run,
             // 不写本机，但每次都是计费外网请求，与 chat 指令同理不声明 Readonly。
             Readonly = false,
@@ -68,7 +69,7 @@ internal static class RatioEmbedCommands
                 new ParameterSpec
                 {
                     Name = "dimensions", Type = ParamType.Int,
-                    Description = "向量维数；省略时按模型默认（text-embedding-v4 为 1024，可选 64~2048）。",
+                    Description = "向量维数；省略时按模型默认。text-embedding-v4 默认 1024，只认 64/128/256/512/768/1024/1536/2048 这几档。",
                 },
                 new ParameterSpec
                 {
