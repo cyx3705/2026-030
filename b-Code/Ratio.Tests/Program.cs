@@ -38,6 +38,7 @@ var tests = new (string Name, Func<Task> Run)[]
     ("service bundle", TestServiceBundleAsync),
     ("local probs", TestLocalProbsAsync),
     ("seq choose fallback", TestSeqChooseFallbackAsync),
+    ("seq batch and append", TestSeqBatchAsync),
     ("seq stream", TestSeqStreamAsync),
     ("seq stream by steps", TestSeqStreamStepsAsync),
     ("chat stream", TestChatStreamAsync),
@@ -1295,6 +1296,77 @@ static async Task TestSeqChooseFallbackAsync()
     Equal("invalid_sequence_size", rejected.Message);
 }
 
+static async Task TestSeqBatchAsync()
+{
+    // 新服务：整批一次 select_batch；省略 prefix 就不带 prefix_text；续接更新记账里的前缀长度。
+    var bodies = new List<JsonElement>();
+    using var local = new LocalInference(() => "http://127.0.0.1:11435/v1", FakeTransport.Http((_, body) =>
+    {
+        var json = JsonDocument.Parse(body!).RootElement.Clone();
+        bodies.Add(json);
+        return json.GetProperty("op").GetString() switch
+        {
+            "create" => (HttpStatusCode.OK, """{"sequence_id":"7","cache_epoch":"e","prefix_tokens":12}"""),
+            "append" => (HttpStatusCode.OK, """{"sequence_id":"7","cache_epoch":"e","prefix_tokens":20,"appended_tokens":8}"""),
+            "select_batch" => (HttpStatusCode.OK, """{"results":[{"label":" A","decision_steps":1},{"label":"0","decision_steps":1}],"groups":1,"elapsed_ms":3.5}"""),
+            _ => (HttpStatusCode.OK, "{}"),
+        };
+    }));
+    var lease = await local.OpenAsync(null, "prompt", CancellationToken.None);
+    var grown = await local.AppendAsync(lease.SequenceId, lease.CacheEpoch, "more\n", CancellationToken.None);
+    Equal(20, grown.PrefixTokens);
+    Equal("more\n", bodies[^1].GetProperty("text").GetString());
+    var (rows, serviceMs, batched) = await local.ChooseBatchAsync(lease.SequenceId, lease.CacheEpoch, null,
+        [("x Label:", ["0", " A"]), ("y Label:", ["0", " A", " B"])], CancellationToken.None);
+    True(batched, "新服务应走 select_batch");
+    Equal(2, rows.Count);
+    Equal("0", rows[1]!["label"]!.GetValue<string>());
+    Equal(3.5, serviceMs);
+    var sent = bodies[^1];
+    True(!sent.TryGetProperty("prefix_text", out _), "省略 prefix 不应带 prefix_text");
+    Equal(2, sent.GetProperty("jobs").GetArrayLength());
+    Equal(" B", sent.GetProperty("jobs")[1].GetProperty("allowed_labels")[2].GetString());
+    await local.ChooseBatchAsync(lease.SequenceId, lease.CacheEpoch, "prompt", [("x", ["0", " A"]), ("y", ["0"])], CancellationToken.None);
+    Equal("prompt", bodies[^1].GetProperty("prefix_text").GetString());
+    await ThrowsAsync<RatioInputException>(() => local.ChooseBatchAsync("7", "e", null, [], CancellationToken.None));
+
+    // 服务回了任务没给的标签：整批作废。
+    using var wrong = new LocalInference(() => "http://x/v1", FakeTransport.Http((_, _) =>
+        (HttpStatusCode.OK, """{"results":[{"label":" Z"}]}""")));
+    var invalid = await ThrowsAsync<RatioKvException>(() => wrong.ChooseBatchAsync("7", "e", null, [("x", ["0", " A"])], CancellationToken.None));
+    Equal("invalid_shared_label", invalid.Message);
+
+    // 旧服务没有 select_batch：退回逐个 select_text，结果同序。
+    var ops = new List<string>();
+    using var old = new LocalInference(() => "http://x/v1", FakeTransport.Http((_, body) =>
+    {
+        var json = JsonDocument.Parse(body!).RootElement;
+        var op = json.GetProperty("op").GetString()!;
+        ops.Add(op);
+        return op switch
+        {
+            "select_batch" => (HttpStatusCode.BadRequest, """{"error":{"message":"unknown_echo_operation"}}"""),
+            "select_text" => (HttpStatusCode.OK, json.GetProperty("suffix_text").GetString() == "x"
+                ? """{"results":[{"label":" A","decision_steps":1}]}"""
+                : """{"results":[{"label":"0","decision_steps":1}]}"""),
+            _ => (HttpStatusCode.OK, "{}"),
+        };
+    }));
+    var (fallback, _, viaBatch) = await old.ChooseBatchAsync("7", "e", "prompt", [("x", ["0", " A"]), ("y", ["0", " A"])], CancellationToken.None);
+    True(!viaBatch, "旧服务应退回逐个选");
+    Equal("select_batch,select_text,select_text", string.Join(",", ops));
+    Equal(" A", fallback[0]!["label"]!.GetValue<string>());
+    Equal("0", fallback[1]!["label"]!.GetValue<string>());
+    var needPrefix = await ThrowsAsync<RatioKvException>(() => old.ChooseBatchAsync("7", "e", null, [("x", ["0"])], CancellationToken.None));
+    Equal("select_batch_requires_prefix_on_old_service", needPrefix.Message);
+
+    Equal(2, RatioInferenceCommands.ParseJobs("""[{"suffix":"a","labels":["0"," A"]},{"suffix":"b","labels":["0"]}]""").Count);
+    Throws<RatioInputException>(() => RatioInferenceCommands.ParseJobs("[]"));
+    Throws<RatioInputException>(() => RatioInferenceCommands.ParseJobs("""[{"suffix":"","labels":["0"]}]"""));
+    Throws<RatioInputException>(() => RatioInferenceCommands.ParseJobs("""[{"suffix":"a","labels":[]}]"""));
+    Throws<RatioInputException>(() => RatioInferenceCommands.ParseJobs("not json"));
+}
+
 static async Task<string> DrainAsync(LocalInference local, StreamSession session)
 {
     var text = new System.Text.StringBuilder();
@@ -1357,7 +1429,7 @@ static Task TestInferenceCommandsAsync()
     using var local = new LocalInference(() => "http://127.0.0.1:11435/v1", FakeTransport.Http((_, _) => (HttpStatusCode.OK, "{}")));
     var registry = new Registrar();
     RatioInferenceCommands.Register(registry, scope.Store, client, local);
-    string[] expected = ["ratio.local.probs", "ratio.seq.caps", "ratio.seq.open", "ratio.seq.choose", "ratio.seq.stream",
+    string[] expected = ["ratio.local.probs", "ratio.seq.caps", "ratio.seq.open", "ratio.seq.choose", "ratio.seq.batch", "ratio.seq.append", "ratio.seq.stream",
         "ratio.seq.close", "ratio.chat.stream", "ratio.stream.read", "ratio.stream.cancel"];
     foreach (var name in expected)
         True(registry.TryGet(name, out _), $"未注册 {name}");

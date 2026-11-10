@@ -28,9 +28,13 @@ replace(base+'server-context.h', '    server_http_context::handler_t post_contro
 replace(base+'server-context.cpp', '#include "server-context.h"', '#include "server-context.h"\n#include "echo-kv.h"')
 replace(base+'server-context.cpp', '    common_params params_base;', '    common_params params_base;\n    echo_kv_runtime echo_kv;')
 replace(base+'server-context.cpp', '        llama_init = common_init_from_params(params_base);', '''        auto echo_params = params_base;
-        // Two extra sequence IDs, zero extra model loads. The public slot count
-        // stays unchanged; all operations run on this same inference queue.
-        echo_params.n_parallel += 2;
+        // Extra sequence IDs (one A + N branches), zero extra model loads. The
+        // public slot count stays unchanged; all operations run on this same
+        // inference queue. ECHO_KV_BRANCHES sizes the batch-select fan-out.
+        int echo_branches = 1;
+        if (const char * value = std::getenv("ECHO_KV_BRANCHES")) echo_branches = std::atoi(value);
+        echo_branches = std::max(1, std::min(echo_branches, 64));
+        echo_params.n_parallel += 1 + echo_branches;
         echo_params.n_outputs_max = std::max(echo_params.n_outputs_max, echo_params.n_parallel);
         echo_params.kv_unified = true;
         llama_init = common_init_from_params(echo_params);''')

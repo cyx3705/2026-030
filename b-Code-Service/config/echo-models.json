@@ -2,7 +2,7 @@
   "default": "qwen3.5:35b-a3b-q4_K_M",
   "models": [
     {"name": "qwen3.5:35b-a3b-q4_K_M", "manifest": "qwen3.5/35b-a3b-q4_K_M", "family": "qwen", "context": 262144, "cpu_moe_layers": 30, "template": "qwen35-cache-stable.jinja", "extra": ["--override-kv", "qwen35moe.context_length=int:372736", "--rope-scaling", "yarn", "--rope-scale", "1.421875", "--yarn-orig-ctx", "262144"]},
-    {"name": "qwen3:8b", "manifest": "qwen3/8b", "family": "qwen", "context": 32768, "cpu_moe_layers": 0, "extra": []},
+    {"name": "qwen3:8b", "manifest": "qwen3/8b", "family": "qwen", "context": 32768, "cpu_moe_layers": 0, "kv_branches": 32, "batch": 2048, "ubatch": 1024, "extra": []},
     {"name": "gemma4:12b", "manifest": "gemma4/12b", "family": "gemma4", "context": 16384, "cpu_moe_layers": 0, "shared_kv": false, "extra": []},
     {"name": "qwen3.5:27b", "manifest": "qwen3.5/27b", "family": "qwen", "context": 32768, "disabled_reason": "尚未配置此模型的显存分配方案"}
   ]

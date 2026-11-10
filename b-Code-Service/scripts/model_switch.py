@@ -274,17 +274,20 @@ class Controller:
             raise ModelError('LOCAL_MODEL_PARALLEL 必须为 1 或 2', 422)
         if parallel not in (1, 2):
             raise ModelError('LOCAL_MODEL_PARALLEL 必须为 1 或 2', 422)
+        # 批量选义的分叉序列数；随后 execv 的 llama-server 从环境读取。
+        os.environ['ECHO_KV_BRANCHES'] = str(int(p.get('kv_branches', 1)))
         args = [str(self.root/'linux-cache/echo-kv-build/build/llama-server'), '-m',str(blob),
             '--host','127.0.0.1','--port','18769','--alias',name,'--device','CUDA0',
             '-ngl','all','-ncmoe',str(moe),'--fit','off','--load-mode','none',
             *p['extra'], '-c',str(context),'-np',str(parallel),'--kv-unified','--cache-prompt','--cache-ram','1024',
             '--ctx-checkpoints','8','--checkpoint-min-step','1024','--slot-save-path',
-            str(self.root/'prefix-cache/runtime-slots'),'--metrics','-b','256','-ub','128',
-            '-ctk','q8_0','-ctv','q8_0','-fa','on','-t','8','-tb','16','--jinja']
+            str(self.root/'prefix-cache/runtime-slots'),'--metrics',
+            '-b',str(int(p.get('batch',256))),'-ub',str(int(p.get('ubatch',128))),
+            '-ctk',str(p.get('kv_type','q8_0')),'-ctv',str(p.get('kv_type','q8_0')),'-fa','on','-t','8','-tb','16','--jinja']
         if p.get('template'):
             args += ['--chat-template-file',str(self.root/'config'/p['template'])]
         return args + ['--chat-template-kwargs','{"enable_thinking":false}','--reasoning-budget','0',
-            '--no-webui','--offline','--no-context-shift','--perf','-lv','4']
+            '--no-webui','--offline','--no-context-shift','--perf','-lv',str(int(p.get('verbosity',4)))]
 
 
 if __name__ == '__main__':

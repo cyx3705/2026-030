@@ -113,6 +113,57 @@ internal static class RatioInferenceCommands
 
         registry.Register(new CommandDescriptor
         {
+            Name = "ratio.seq.batch",
+            Domain = Domain,
+            CommandClass = "seq",
+            Summary = "在共享 KV 序列上一次分叉很多个：每个任务一段后缀加一组标签，服务把它们并进同一次前向各选一个标签，结果与任务同序；比逐个 ratio.seq.choose 快一个量级。",
+            Example = "ratio.seq.batch sequence=3 epoch=e1 jobs=[{\"suffix\":\"Label:\",\"labels\":[\"0\",\" A\",\" B\"]}]",
+            Level = CommandLevel.Run,
+            Parameters =
+            [
+                SequenceParameter(),
+                EpochParameter(),
+                new ParameterSpec { Name = "jobs", Description = "JSON 数组（1-512 项），每项 {\"suffix\":后缀文本,\"labels\":[允许的标签]}；标签规则同 ratio.seq.choose。", Required = true },
+                new ParameterSpec { Name = "prefix", Description = "与序列共享的前缀文本；省略表示在序列末尾分叉（旧服务不支持省略）。" },
+            ],
+            Handler = Guard(async context =>
+            {
+                var jobs = ParseJobs(context.RequireString("jobs"));
+                var (rows, serviceMs, batched) = await local.ChooseBatchAsync(context.RequireString("sequence"), context.RequireString("epoch"),
+                    context.GetString("prefix"), jobs, context.Cancellation).ConfigureAwait(false);
+                var count = rows.Count;
+                return CommandResult.Ok($"选了 {count} 个标签" + (batched ? $"（服务 {serviceMs:0} ms）" : "（旧服务，逐个选）"),
+                    new JsonObject { ["results"] = rows, ["serviceMs"] = serviceMs, ["batched"] = batched }.ToJsonString());
+            }),
+        });
+
+        registry.Register(new CommandDescriptor
+        {
+            Name = "ratio.seq.append",
+            Domain = Domain,
+            CommandClass = "seq",
+            Summary = "在共享 KV 序列末尾续接一段文本：只算新增的 token，此前的前缀缓存原样保留，返回续接后的句柄。",
+            Example = "ratio.seq.append sequence=3 epoch=e1 text=\"Next paragraph.\\n\"",
+            Level = CommandLevel.Run,
+            Parameters =
+            [
+                SequenceParameter(),
+                EpochParameter(),
+                new ParameterSpec { Name = "text", Description = "接在序列末尾的原始文本，原样送进模型。", Required = true },
+            ],
+            Handler = Guard(async context =>
+            {
+                var lease = await local.AppendAsync(context.RequireString("sequence"), context.RequireString("epoch"),
+                    context.RequireString("text"), context.Cancellation).ConfigureAwait(false);
+                return CommandResult.Ok($"序列 {lease.SequenceId} 已续接（前缀 {lease.PrefixTokens} token）", JsonSerializer.Serialize(new
+                {
+                    sequence = lease.SequenceId, epoch = lease.CacheEpoch, prefixTokens = lease.PrefixTokens,
+                }));
+            }),
+        });
+
+        registry.Register(new CommandDescriptor
+        {
             Name = "ratio.seq.stream",
             Domain = Domain,
             CommandClass = "seq",
@@ -247,6 +298,37 @@ internal static class RatioInferenceCommands
         catch (JsonException ex)
         {
             throw new RatioInputException($"labels 不是合法 JSON 数组：{ex.Message}");
+        }
+    }
+
+    internal static IReadOnlyList<(string Suffix, IReadOnlyList<string> Labels)> ParseJobs(string text)
+    {
+        try
+        {
+            if (JsonNode.Parse(text) is not JsonArray { Count: > 0 } array)
+                throw new RatioInputException("jobs 必须是非空 JSON 数组");
+            var jobs = new List<(string, IReadOnlyList<string>)>(array.Count);
+            foreach (var node in array)
+            {
+                if (node is not JsonObject job || job["suffix"] is not JsonValue suffixValue || !suffixValue.TryGetValue<string>(out var suffix)
+                    || string.IsNullOrEmpty(suffix) || job["labels"] is not JsonArray { Count: > 0 } labelArray)
+                    throw new RatioInputException("jobs 的每一项都要有非空的 suffix 与 labels 数组");
+                var labels = new List<string>(labelArray.Count);
+                foreach (var item in labelArray)
+                {
+                    if (item is not JsonValue value || !value.TryGetValue<string>(out var label) || string.IsNullOrEmpty(label))
+                        throw new RatioInputException("labels 必须是非空字符串组成的 JSON 数组");
+                    labels.Add(label);
+                }
+
+                jobs.Add((suffix, labels));
+            }
+
+            return jobs;
+        }
+        catch (JsonException ex)
+        {
+            throw new RatioInputException($"jobs 不是合法 JSON 数组：{ex.Message}");
         }
     }
 

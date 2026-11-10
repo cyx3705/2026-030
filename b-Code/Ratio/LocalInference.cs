@@ -224,6 +224,76 @@ internal sealed class LocalInference : IDisposable
         return (JsonObject)row.DeepClone();
     }
 
+    /// <summary>
+    /// 在序列末尾续接一段文本（0.10.0）：只算新增的 token，此前的 KV 原样保留。返回续接后的前缀 token 数。
+    /// </summary>
+    public async Task<SequenceLease> AppendAsync(string sequence, string epoch, string text, CancellationToken cancellation)
+    {
+        if (string.IsNullOrEmpty(text))
+            throw new RatioInputException("text 不能为空");
+        var data = await OpAsync("append", new JsonObject
+        {
+            ["sequence_id"] = sequence, ["cache_epoch"] = epoch, ["text"] = text,
+        }, 600, cancellation).ConfigureAwait(false);
+        var lease = Lease(data);
+        if (_open.ContainsKey(sequence))
+            _open[sequence] = lease;
+        return lease;
+    }
+
+    /// <summary>
+    /// 在序列上一次分叉很多个 B（0.10.0）：每个任务一段后缀与一组标签，服务把它们并进同一次前向（多序列一批），
+    /// 各取一步。<paramref name="prefixText"/> 为空表示在序列末尾分叉。结果与任务同序。
+    /// </summary>
+    /// <remarks>旧服务没有 <c>select_batch</c> 时退回逐个 <see cref="ChooseAsync"/>，结果相同、只是慢。</remarks>
+    public async Task<(JsonArray Rows, double ServiceMs, bool Batched)> ChooseBatchAsync(
+        string sequence, string epoch, string? prefixText, IReadOnlyList<(string Suffix, IReadOnlyList<string> Labels)> jobs,
+        CancellationToken cancellation)
+    {
+        if (jobs.Count is < 1 or > 512)
+            throw new RatioInputException("jobs 须为 1-512 个");
+        if (jobs.Any(job => job.Labels.Count == 0 || string.IsNullOrEmpty(job.Suffix)))
+            throw new RatioInputException("每个任务都要有非空的 suffix 与至少一个标签");
+        var body = new JsonObject
+        {
+            ["sequence_id"] = sequence,
+            ["cache_epoch"] = epoch,
+            ["jobs"] = new JsonArray(jobs.Select(job => (JsonNode)new JsonObject
+            {
+                ["suffix_text"] = job.Suffix,
+                ["allowed_labels"] = new JsonArray(job.Labels.Select(label => (JsonNode)JsonValue.Create(label)!).ToArray()),
+            }).ToArray()),
+        };
+        if (!string.IsNullOrEmpty(prefixText))
+            body["prefix_text"] = prefixText;
+        JsonObject data;
+        try
+        {
+            data = await OpAsync("select_batch", body, 300, cancellation).ConfigureAwait(false);
+        }
+        catch (RatioKvException ex) when (ex.Message.Contains("unknown_echo_operation", StringComparison.Ordinal))
+        {
+            if (string.IsNullOrEmpty(prefixText))
+                throw new RatioKvException("select_batch_requires_prefix_on_old_service");
+            var rows = new JsonArray();
+            foreach (var job in jobs)
+                rows.Add(await ChooseAsync(sequence, epoch, prefixText, job.Suffix, job.Labels, cancellation).ConfigureAwait(false));
+            return (rows, 0, false);
+        }
+
+        if (data["results"] is not JsonArray results || results.Count != jobs.Count)
+            throw new RatioKvException("invalid_shared_results");
+        for (var i = 0; i < results.Count; i++)
+        {
+            var label = results[i]?["label"]?.GetValue<string>();
+            if (label is null || !jobs[i].Labels.Contains(label, StringComparer.Ordinal))
+                throw new RatioKvException("invalid_shared_label");
+        }
+
+        data.Remove("results");
+        return (results, data["elapsed_ms"]?.GetValue<double>() ?? 0, true);
+    }
+
     /// <summary>释放序列。</summary>
     public async Task CloseAsync(string sequence, string epoch, CancellationToken cancellation)
     {
