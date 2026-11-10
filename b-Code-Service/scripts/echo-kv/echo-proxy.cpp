@@ -82,7 +82,19 @@ struct Exchange {
         client.set_tcp_nodelay(true);
     }
     ~Exchange() { cancel(); if (worker.joinable()) worker.join(); if (monitor.joinable()) monitor.join(); }
-    void cancel() { cancelled.store(true); cv.notify_all(); client.stop(); }
+    // Flags that a waiter's predicate reads must change under the mutex. Setting
+    // them outside it lets the change and its notify land between a waiter's
+    // predicate check and its block; that wakeup is lost and the downstream
+    // response then hangs until the client gives up (seen as 30-600 s stalls).
+    void cancel() {
+        { std::lock_guard<std::mutex> lock(mutex); cancelled.store(true); }
+        cv.notify_all();
+        client.stop();
+    }
+    void finish() {
+        { std::lock_guard<std::mutex> lock(mutex); finished.store(true); }
+        cv.notify_all();
+    }
     httplib::Client client;
     std::thread worker, monitor;
     std::atomic<bool> cancelled{false}, finished{false};
@@ -355,8 +367,7 @@ private:
                     state->error = httplib::to_string(result.error());
                 }
             }
-            state->finished.store(true);
-            state->cv.notify_all();
+            state->finish();
         });
         exchange->monitor = std::thread([state, closed]() {
             std::unique_lock<std::mutex> lock(state->mutex);
