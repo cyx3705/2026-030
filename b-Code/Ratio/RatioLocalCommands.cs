@@ -1,4 +1,4 @@
-using HistoryVulcan.Core.Commands;
+﻿using HistoryVulcan.Core.Commands;
 
 namespace Ratio;
 
@@ -21,7 +21,7 @@ internal static class RatioLocalCommands
                 Name = "ratio.local.status",
                 Domain = Domain,
                 CommandClass = "local",
-                Summary = "查看本机推理服务：是否在跑、当前模型、可切换模型与换模进度，以及同机其他推理监听。",
+                Summary = "查看本机推理服务：是否在跑、当前模型、可切换模型与换模进度，后端类型。",
                 Example = "ratio.local.status",
                 Level = CommandLevel.Run,
                 Readonly = true,
@@ -38,7 +38,7 @@ internal static class RatioLocalCommands
                 Name = "ratio.local.start",
                 Domain = Domain,
                 CommandClass = "local",
-                Summary = "启动本机推理服务（WSL 里的模型与 OpenAI 兼容代理），装上次选定的模型；已在运行则直接返回。",
+                Summary = "启动 Ratio 自有原生推理 DLL，装上次选定的模型；已在运行则直接返回。本地推理仅使用此 DLL。",
                 Example = "ratio.local.start",
                 Level = CommandLevel.Run,
                 Parameters = [TimeoutParameter(600)],
@@ -67,7 +67,7 @@ internal static class RatioLocalCommands
                     var status = await local.StopAsync(context.GetInt("timeout", 300), context.Progress, context.Cancellation)
                         .ConfigureAwait(false);
                     return CommandResult.Ok(
-                        status.Running ? $"停止脚本已执行，但代理仍在答话{Environment.NewLine}{LocalService.Describe(status)}" : "本机推理服务已停止",
+                        status.Running ? $"原生模型尚未停止{Environment.NewLine}{LocalService.Describe(status)}" : "本机推理服务已停止",
                         LocalService.ToJson(status));
                 }),
             });

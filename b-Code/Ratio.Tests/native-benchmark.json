@@ -1,0 +1,291 @@
+{
+  "source": "Existing RATIO-KV-002 bench_batch.py fixed workload, 32 dictionary-sense jobs",
+  "model": "qwen3:8b",
+  "prefix": "<|im_start|>system\nChoose Chinese dictionary senses for English word occurrences.<|im_end|>\n<|im_start|>user\nThe bank raised interest rates again this spring, and the market did not take it well. Shares of several large firms fell sharply as traders tried to work out what the move would mean for the rest of the year. A light rain was falling when the chairman left the building, and he did not stop to address the press waiting by the gate. The bank raised interest rates again this spring, and the market did not take it well. Shares of several large firms fell sharply as traders tried to work out what the move would mean for the rest of the year. A light rain was falling when the chairman left the building, and he did not stop to address the press waiting by the gate. The bank raised interest rates again this spring, and the market did not take it well. Shares of several large firms fell sharply as traders tried to work out what the move would mean for the rest of the year. A light rain was falling when the chairman left the building, and he did not stop to address the press waiting by the gate. ",
+  "jobs": [
+    {
+      "suffix_text": "<|im_end|>\n<|im_start|>user\nTarget occurrence and dictionary choices:\n{\"word\": \"bank\", \"n\": 0, \"choices\": {\"A\": {\"pos\": \"\", \"text\": \"银行\"}, \"B\": {\"pos\": \"\", \"text\": \"岸\"}, \"C\": {\"pos\": \"\", \"text\": \"堆积\"}}}\nReturn one label or 0.<|im_end|>\n<|im_start|>assistant\n<think>\n\n</think>\n\nLabel:",
+      "allowed_labels": [
+        "0",
+        " A",
+        " B",
+        " C"
+      ]
+    },
+    {
+      "suffix_text": "<|im_end|>\n<|im_start|>user\nTarget occurrence and dictionary choices:\n{\"word\": \"spring\", \"n\": 1, \"choices\": {\"A\": {\"pos\": \"\", \"text\": \"春天\"}, \"B\": {\"pos\": \"\", \"text\": \"弹簧\"}, \"C\": {\"pos\": \"\", \"text\": \"泉水\"}, \"D\": {\"pos\": \"\", \"text\": \"跳跃\"}}}\nReturn one label or 0.<|im_end|>\n<|im_start|>assistant\n<think>\n\n</think>\n\nLabel:",
+      "allowed_labels": [
+        "0",
+        " A",
+        " B",
+        " C",
+        " D"
+      ]
+    },
+    {
+      "suffix_text": "<|im_end|>\n<|im_start|>user\nTarget occurrence and dictionary choices:\n{\"word\": \"market\", \"n\": 2, \"choices\": {\"A\": {\"pos\": \"\", \"text\": \"市场\"}, \"B\": {\"pos\": \"\", \"text\": \"集市\"}}}\nReturn one label or 0.<|im_end|>\n<|im_start|>assistant\n<think>\n\n</think>\n\nLabel:",
+      "allowed_labels": [
+        "0",
+        " A",
+        " B"
+      ]
+    },
+    {
+      "suffix_text": "<|im_end|>\n<|im_start|>user\nTarget occurrence and dictionary choices:\n{\"word\": \"light\", \"n\": 3, \"choices\": {\"A\": {\"pos\": \"\", \"text\": \"轻的\"}, \"B\": {\"pos\": \"\", \"text\": \"光\"}, \"C\": {\"pos\": \"\", \"text\": \"点燃\"}}}\nReturn one label or 0.<|im_end|>\n<|im_start|>assistant\n<think>\n\n</think>\n\nLabel:",
+      "allowed_labels": [
+        "0",
+        " A",
+        " B",
+        " C"
+      ]
+    },
+    {
+      "suffix_text": "<|im_end|>\n<|im_start|>user\nTarget occurrence and dictionary choices:\n{\"word\": \"press\", \"n\": 4, \"choices\": {\"A\": {\"pos\": \"\", \"text\": \"按压\"}, \"B\": {\"pos\": \"\", \"text\": \"新闻界\"}, \"C\": {\"pos\": \"\", \"text\": \"印刷机\"}}}\nReturn one label or 0.<|im_end|>\n<|im_start|>assistant\n<think>\n\n</think>\n\nLabel:",
+      "allowed_labels": [
+        "0",
+        " A",
+        " B",
+        " C"
+      ]
+    },
+    {
+      "suffix_text": "<|im_end|>\n<|im_start|>user\nTarget occurrence and dictionary choices:\n{\"word\": \"address\", \"n\": 5, \"choices\": {\"A\": {\"pos\": \"\", \"text\": \"地址\"}, \"B\": {\"pos\": \"\", \"text\": \"向…讲话\"}, \"C\": {\"pos\": \"\", \"text\": \"处理\"}}}\nReturn one label or 0.<|im_end|>\n<|im_start|>assistant\n<think>\n\n</think>\n\nLabel:",
+      "allowed_labels": [
+        "0",
+        " A",
+        " B",
+        " C"
+      ]
+    },
+    {
+      "suffix_text": "<|im_end|>\n<|im_start|>user\nTarget occurrence and dictionary choices:\n{\"word\": \"firms\", \"n\": 6, \"choices\": {\"A\": {\"pos\": \"\", \"text\": \"公司\"}, \"B\": {\"pos\": \"\", \"text\": \"坚固的\"}}}\nReturn one label or 0.<|im_end|>\n<|im_start|>assistant\n<think>\n\n</think>\n\nLabel:",
+      "allowed_labels": [
+        "0",
+        " A",
+        " B"
+      ]
+    },
+    {
+      "suffix_text": "<|im_end|>\n<|im_start|>user\nTarget occurrence and dictionary choices:\n{\"word\": \"fell\", \"n\": 7, \"choices\": {\"A\": {\"pos\": \"\", \"text\": \"下跌\"}, \"B\": {\"pos\": \"\", \"text\": \"砍伐\"}, \"C\": {\"pos\": \"\", \"text\": \"凶猛的\"}}}\nReturn one label or 0.<|im_end|>\n<|im_start|>assistant\n<think>\n\n</think>\n\nLabel:",
+      "allowed_labels": [
+        "0",
+        " A",
+        " B",
+        " C"
+      ]
+    },
+    {
+      "suffix_text": "<|im_end|>\n<|im_start|>user\nTarget occurrence and dictionary choices:\n{\"word\": \"bank\", \"n\": 8, \"choices\": {\"A\": {\"pos\": \"\", \"text\": \"银行\"}, \"B\": {\"pos\": \"\", \"text\": \"岸\"}, \"C\": {\"pos\": \"\", \"text\": \"堆积\"}}}\nReturn one label or 0.<|im_end|>\n<|im_start|>assistant\n<think>\n\n</think>\n\nLabel:",
+      "allowed_labels": [
+        "0",
+        " A",
+        " B",
+        " C"
+      ]
+    },
+    {
+      "suffix_text": "<|im_end|>\n<|im_start|>user\nTarget occurrence and dictionary choices:\n{\"word\": \"spring\", \"n\": 9, \"choices\": {\"A\": {\"pos\": \"\", \"text\": \"春天\"}, \"B\": {\"pos\": \"\", \"text\": \"弹簧\"}, \"C\": {\"pos\": \"\", \"text\": \"泉水\"}, \"D\": {\"pos\": \"\", \"text\": \"跳跃\"}}}\nReturn one label or 0.<|im_end|>\n<|im_start|>assistant\n<think>\n\n</think>\n\nLabel:",
+      "allowed_labels": [
+        "0",
+        " A",
+        " B",
+        " C",
+        " D"
+      ]
+    },
+    {
+      "suffix_text": "<|im_end|>\n<|im_start|>user\nTarget occurrence and dictionary choices:\n{\"word\": \"market\", \"n\": 10, \"choices\": {\"A\": {\"pos\": \"\", \"text\": \"市场\"}, \"B\": {\"pos\": \"\", \"text\": \"集市\"}}}\nReturn one label or 0.<|im_end|>\n<|im_start|>assistant\n<think>\n\n</think>\n\nLabel:",
+      "allowed_labels": [
+        "0",
+        " A",
+        " B"
+      ]
+    },
+    {
+      "suffix_text": "<|im_end|>\n<|im_start|>user\nTarget occurrence and dictionary choices:\n{\"word\": \"light\", \"n\": 11, \"choices\": {\"A\": {\"pos\": \"\", \"text\": \"轻的\"}, \"B\": {\"pos\": \"\", \"text\": \"光\"}, \"C\": {\"pos\": \"\", \"text\": \"点燃\"}}}\nReturn one label or 0.<|im_end|>\n<|im_start|>assistant\n<think>\n\n</think>\n\nLabel:",
+      "allowed_labels": [
+        "0",
+        " A",
+        " B",
+        " C"
+      ]
+    },
+    {
+      "suffix_text": "<|im_end|>\n<|im_start|>user\nTarget occurrence and dictionary choices:\n{\"word\": \"press\", \"n\": 12, \"choices\": {\"A\": {\"pos\": \"\", \"text\": \"按压\"}, \"B\": {\"pos\": \"\", \"text\": \"新闻界\"}, \"C\": {\"pos\": \"\", \"text\": \"印刷机\"}}}\nReturn one label or 0.<|im_end|>\n<|im_start|>assistant\n<think>\n\n</think>\n\nLabel:",
+      "allowed_labels": [
+        "0",
+        " A",
+        " B",
+        " C"
+      ]
+    },
+    {
+      "suffix_text": "<|im_end|>\n<|im_start|>user\nTarget occurrence and dictionary choices:\n{\"word\": \"address\", \"n\": 13, \"choices\": {\"A\": {\"pos\": \"\", \"text\": \"地址\"}, \"B\": {\"pos\": \"\", \"text\": \"向…讲话\"}, \"C\": {\"pos\": \"\", \"text\": \"处理\"}}}\nReturn one label or 0.<|im_end|>\n<|im_start|>assistant\n<think>\n\n</think>\n\nLabel:",
+      "allowed_labels": [
+        "0",
+        " A",
+        " B",
+        " C"
+      ]
+    },
+    {
+      "suffix_text": "<|im_end|>\n<|im_start|>user\nTarget occurrence and dictionary choices:\n{\"word\": \"firms\", \"n\": 14, \"choices\": {\"A\": {\"pos\": \"\", \"text\": \"公司\"}, \"B\": {\"pos\": \"\", \"text\": \"坚固的\"}}}\nReturn one label or 0.<|im_end|>\n<|im_start|>assistant\n<think>\n\n</think>\n\nLabel:",
+      "allowed_labels": [
+        "0",
+        " A",
+        " B"
+      ]
+    },
+    {
+      "suffix_text": "<|im_end|>\n<|im_start|>user\nTarget occurrence and dictionary choices:\n{\"word\": \"fell\", \"n\": 15, \"choices\": {\"A\": {\"pos\": \"\", \"text\": \"下跌\"}, \"B\": {\"pos\": \"\", \"text\": \"砍伐\"}, \"C\": {\"pos\": \"\", \"text\": \"凶猛的\"}}}\nReturn one label or 0.<|im_end|>\n<|im_start|>assistant\n<think>\n\n</think>\n\nLabel:",
+      "allowed_labels": [
+        "0",
+        " A",
+        " B",
+        " C"
+      ]
+    },
+    {
+      "suffix_text": "<|im_end|>\n<|im_start|>user\nTarget occurrence and dictionary choices:\n{\"word\": \"bank\", \"n\": 16, \"choices\": {\"A\": {\"pos\": \"\", \"text\": \"银行\"}, \"B\": {\"pos\": \"\", \"text\": \"岸\"}, \"C\": {\"pos\": \"\", \"text\": \"堆积\"}}}\nReturn one label or 0.<|im_end|>\n<|im_start|>assistant\n<think>\n\n</think>\n\nLabel:",
+      "allowed_labels": [
+        "0",
+        " A",
+        " B",
+        " C"
+      ]
+    },
+    {
+      "suffix_text": "<|im_end|>\n<|im_start|>user\nTarget occurrence and dictionary choices:\n{\"word\": \"spring\", \"n\": 17, \"choices\": {\"A\": {\"pos\": \"\", \"text\": \"春天\"}, \"B\": {\"pos\": \"\", \"text\": \"弹簧\"}, \"C\": {\"pos\": \"\", \"text\": \"泉水\"}, \"D\": {\"pos\": \"\", \"text\": \"跳跃\"}}}\nReturn one label or 0.<|im_end|>\n<|im_start|>assistant\n<think>\n\n</think>\n\nLabel:",
+      "allowed_labels": [
+        "0",
+        " A",
+        " B",
+        " C",
+        " D"
+      ]
+    },
+    {
+      "suffix_text": "<|im_end|>\n<|im_start|>user\nTarget occurrence and dictionary choices:\n{\"word\": \"market\", \"n\": 18, \"choices\": {\"A\": {\"pos\": \"\", \"text\": \"市场\"}, \"B\": {\"pos\": \"\", \"text\": \"集市\"}}}\nReturn one label or 0.<|im_end|>\n<|im_start|>assistant\n<think>\n\n</think>\n\nLabel:",
+      "allowed_labels": [
+        "0",
+        " A",
+        " B"
+      ]
+    },
+    {
+      "suffix_text": "<|im_end|>\n<|im_start|>user\nTarget occurrence and dictionary choices:\n{\"word\": \"light\", \"n\": 19, \"choices\": {\"A\": {\"pos\": \"\", \"text\": \"轻的\"}, \"B\": {\"pos\": \"\", \"text\": \"光\"}, \"C\": {\"pos\": \"\", \"text\": \"点燃\"}}}\nReturn one label or 0.<|im_end|>\n<|im_start|>assistant\n<think>\n\n</think>\n\nLabel:",
+      "allowed_labels": [
+        "0",
+        " A",
+        " B",
+        " C"
+      ]
+    },
+    {
+      "suffix_text": "<|im_end|>\n<|im_start|>user\nTarget occurrence and dictionary choices:\n{\"word\": \"press\", \"n\": 20, \"choices\": {\"A\": {\"pos\": \"\", \"text\": \"按压\"}, \"B\": {\"pos\": \"\", \"text\": \"新闻界\"}, \"C\": {\"pos\": \"\", \"text\": \"印刷机\"}}}\nReturn one label or 0.<|im_end|>\n<|im_start|>assistant\n<think>\n\n</think>\n\nLabel:",
+      "allowed_labels": [
+        "0",
+        " A",
+        " B",
+        " C"
+      ]
+    },
+    {
+      "suffix_text": "<|im_end|>\n<|im_start|>user\nTarget occurrence and dictionary choices:\n{\"word\": \"address\", \"n\": 21, \"choices\": {\"A\": {\"pos\": \"\", \"text\": \"地址\"}, \"B\": {\"pos\": \"\", \"text\": \"向…讲话\"}, \"C\": {\"pos\": \"\", \"text\": \"处理\"}}}\nReturn one label or 0.<|im_end|>\n<|im_start|>assistant\n<think>\n\n</think>\n\nLabel:",
+      "allowed_labels": [
+        "0",
+        " A",
+        " B",
+        " C"
+      ]
+    },
+    {
+      "suffix_text": "<|im_end|>\n<|im_start|>user\nTarget occurrence and dictionary choices:\n{\"word\": \"firms\", \"n\": 22, \"choices\": {\"A\": {\"pos\": \"\", \"text\": \"公司\"}, \"B\": {\"pos\": \"\", \"text\": \"坚固的\"}}}\nReturn one label or 0.<|im_end|>\n<|im_start|>assistant\n<think>\n\n</think>\n\nLabel:",
+      "allowed_labels": [
+        "0",
+        " A",
+        " B"
+      ]
+    },
+    {
+      "suffix_text": "<|im_end|>\n<|im_start|>user\nTarget occurrence and dictionary choices:\n{\"word\": \"fell\", \"n\": 23, \"choices\": {\"A\": {\"pos\": \"\", \"text\": \"下跌\"}, \"B\": {\"pos\": \"\", \"text\": \"砍伐\"}, \"C\": {\"pos\": \"\", \"text\": \"凶猛的\"}}}\nReturn one label or 0.<|im_end|>\n<|im_start|>assistant\n<think>\n\n</think>\n\nLabel:",
+      "allowed_labels": [
+        "0",
+        " A",
+        " B",
+        " C"
+      ]
+    },
+    {
+      "suffix_text": "<|im_end|>\n<|im_start|>user\nTarget occurrence and dictionary choices:\n{\"word\": \"bank\", \"n\": 24, \"choices\": {\"A\": {\"pos\": \"\", \"text\": \"银行\"}, \"B\": {\"pos\": \"\", \"text\": \"岸\"}, \"C\": {\"pos\": \"\", \"text\": \"堆积\"}}}\nReturn one label or 0.<|im_end|>\n<|im_start|>assistant\n<think>\n\n</think>\n\nLabel:",
+      "allowed_labels": [
+        "0",
+        " A",
+        " B",
+        " C"
+      ]
+    },
+    {
+      "suffix_text": "<|im_end|>\n<|im_start|>user\nTarget occurrence and dictionary choices:\n{\"word\": \"spring\", \"n\": 25, \"choices\": {\"A\": {\"pos\": \"\", \"text\": \"春天\"}, \"B\": {\"pos\": \"\", \"text\": \"弹簧\"}, \"C\": {\"pos\": \"\", \"text\": \"泉水\"}, \"D\": {\"pos\": \"\", \"text\": \"跳跃\"}}}\nReturn one label or 0.<|im_end|>\n<|im_start|>assistant\n<think>\n\n</think>\n\nLabel:",
+      "allowed_labels": [
+        "0",
+        " A",
+        " B",
+        " C",
+        " D"
+      ]
+    },
+    {
+      "suffix_text": "<|im_end|>\n<|im_start|>user\nTarget occurrence and dictionary choices:\n{\"word\": \"market\", \"n\": 26, \"choices\": {\"A\": {\"pos\": \"\", \"text\": \"市场\"}, \"B\": {\"pos\": \"\", \"text\": \"集市\"}}}\nReturn one label or 0.<|im_end|>\n<|im_start|>assistant\n<think>\n\n</think>\n\nLabel:",
+      "allowed_labels": [
+        "0",
+        " A",
+        " B"
+      ]
+    },
+    {
+      "suffix_text": "<|im_end|>\n<|im_start|>user\nTarget occurrence and dictionary choices:\n{\"word\": \"light\", \"n\": 27, \"choices\": {\"A\": {\"pos\": \"\", \"text\": \"轻的\"}, \"B\": {\"pos\": \"\", \"text\": \"光\"}, \"C\": {\"pos\": \"\", \"text\": \"点燃\"}}}\nReturn one label or 0.<|im_end|>\n<|im_start|>assistant\n<think>\n\n</think>\n\nLabel:",
+      "allowed_labels": [
+        "0",
+        " A",
+        " B",
+        " C"
+      ]
+    },
+    {
+      "suffix_text": "<|im_end|>\n<|im_start|>user\nTarget occurrence and dictionary choices:\n{\"word\": \"press\", \"n\": 28, \"choices\": {\"A\": {\"pos\": \"\", \"text\": \"按压\"}, \"B\": {\"pos\": \"\", \"text\": \"新闻界\"}, \"C\": {\"pos\": \"\", \"text\": \"印刷机\"}}}\nReturn one label or 0.<|im_end|>\n<|im_start|>assistant\n<think>\n\n</think>\n\nLabel:",
+      "allowed_labels": [
+        "0",
+        " A",
+        " B",
+        " C"
+      ]
+    },
+    {
+      "suffix_text": "<|im_end|>\n<|im_start|>user\nTarget occurrence and dictionary choices:\n{\"word\": \"address\", \"n\": 29, \"choices\": {\"A\": {\"pos\": \"\", \"text\": \"地址\"}, \"B\": {\"pos\": \"\", \"text\": \"向…讲话\"}, \"C\": {\"pos\": \"\", \"text\": \"处理\"}}}\nReturn one label or 0.<|im_end|>\n<|im_start|>assistant\n<think>\n\n</think>\n\nLabel:",
+      "allowed_labels": [
+        "0",
+        " A",
+        " B",
+        " C"
+      ]
+    },
+    {
+      "suffix_text": "<|im_end|>\n<|im_start|>user\nTarget occurrence and dictionary choices:\n{\"word\": \"firms\", \"n\": 30, \"choices\": {\"A\": {\"pos\": \"\", \"text\": \"公司\"}, \"B\": {\"pos\": \"\", \"text\": \"坚固的\"}}}\nReturn one label or 0.<|im_end|>\n<|im_start|>assistant\n<think>\n\n</think>\n\nLabel:",
+      "allowed_labels": [
+        "0",
+        " A",
+        " B"
+      ]
+    },
+    {
+      "suffix_text": "<|im_end|>\n<|im_start|>user\nTarget occurrence and dictionary choices:\n{\"word\": \"fell\", \"n\": 31, \"choices\": {\"A\": {\"pos\": \"\", \"text\": \"下跌\"}, \"B\": {\"pos\": \"\", \"text\": \"砍伐\"}, \"C\": {\"pos\": \"\", \"text\": \"凶猛的\"}}}\nReturn one label or 0.<|im_end|>\n<|im_start|>assistant\n<think>\n\n</think>\n\nLabel:",
+      "allowed_labels": [
+        "0",
+        " A",
+        " B",
+        " C"
+      ]
+    }
+  ]
+}

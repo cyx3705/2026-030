@@ -1,4 +1,4 @@
-using System.Text.Json;
+﻿using System.Text.Json;
 using System.Text.Json.Serialization;
 
 namespace Ratio;
@@ -70,7 +70,7 @@ internal sealed class ProviderStore(string path)
             // 0.5.0：识图。DeepSeek 收图片但看不到（实测只回「无法查看图片」），带图的请求默认走这家（用户选的通义千问）。
             [BuiltinVisionProvider] = new("https://dashscope.aliyuncs.com/compatible-mode/v1", "qwen-vl-max"),
             [SearchProvider] = new("https://api.bochaai.com", string.Empty, ProviderKind.Search),
-            // 0.6.0：本机统一推理服务（F:\LinuxModuleServices，WSL 里一个 llama-server 加 C++ 代理）。
+            // 本机仅使用定制 DLL；此 URL 只用于内部路由身份，不建立网络连接。
             // 不写默认模型：服务同一时间只装一个模型，调用时取它当前装着的那个（见 ChatClient.ResolveModelAsync）。
             [LocalProvider] = new("http://127.0.0.1:11435/v1", string.Empty),
         };
@@ -217,7 +217,10 @@ internal sealed class ProviderStore(string path)
 
     /// <summary>改这个供应商的接入点根地址。</summary>
     public ProviderProfile SetBaseUrl(string? name, string baseUrl)
-        => Mutate(name, entry => entry with { BaseUrl = NormalizeBaseUrl(baseUrl) });
+    {
+        if (Resolve(name).Name == LocalProvider) throw new RatioInputException("local 使用 Ratio 自有原生 DLL，接入点仅为内部路由标识，不能改成网络推理服务");
+        return Mutate(name, entry => entry with { BaseUrl = NormalizeBaseUrl(baseUrl) });
+    }
 
     /// <summary>是否已经认识这个名字（库里有，或者是内置的）。</summary>
     public bool Knows(string? name)
@@ -306,7 +309,7 @@ internal sealed class ProviderStore(string path)
 
         return new ProviderProfile(
             name.ToLowerInvariant(),
-            (stored.BaseUrl ?? defaults.BaseUrl).TrimEnd('/'),
+            (name.Equals(LocalProvider, StringComparison.OrdinalIgnoreCase) ? defaults.BaseUrl : stored.BaseUrl ?? defaults.BaseUrl).TrimEnd('/'),
             stored.Model ?? defaults.Model,
             key,
             source,

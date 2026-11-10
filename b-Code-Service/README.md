@@ -1,33 +1,36 @@
-# 本机推理服务（Ratio 自带）
+﻿# Ratio 自有本机推理
 
-WSL 里一个 llama-server（127.0.0.1:18769，带 Echo 共享 KV 扩展）前面挂 C++ 代理 echo-proxy（127.0.0.1:11435，OpenAI 兼容）。
-同一时间只装一个模型，Echo、Codex 和 Ratio 共用。2026-11-03 起归 Ratio 所有，不再有单独的推理区（原 `F:\LinuxModuleServices` 已撤销）。
+RATIO-NATIVE-002（0.12.0）：本机推理仅通过定制 Windows DLL。旧 WSL 服务、代理、Linux 构建与启停实现已退役删除。模型、既有快照与远端供应商配置保留。
 
-## 三处位置
+源码在本目录；运行区为 `RATIO_LOCAL_ROOT`（默认 F 盘 ModuleServicesData/Ratio），DLL 在 `native/bin`、快照在 `native/slots`；模型根由 `RATIO_MODEL_ROOT` 指定。不要编辑运行区中的部署副本。
 
-| 什么 | 在哪 | 说明 |
-| --- | --- | --- |
-| 源码（本目录） | `b-Code-Service/` | 唯一真源：`scripts/`、`config/`、`scripts/echo-kv/` C++ 扩展源码 |
-| 运行区 | `F:\ModuleServicesData\Ratio`（WSL `/mnt/f/ModuleServicesData/Ratio`） | 部署后的脚本与配置，加上可重建的：`linux-cache/echo-kv-build`（编译产物）、`linux-ollama/`（CUDA/ggml 运行库）、`prefix-cache/`（KV 快照，40 GB 上限）、`status/`、`linux-logs/`、`linux-tmp/` |
-| 模型 | `F:\Models` | 运行区的上两级目录下的 `Models/`（`Ollama/` 清单与 blob、`GGUF/`） |
+## Windows 原生 DLL（RATIO-NATIVE-001）
 
-运行区是 F 盘特例（用户定），不在宿主 `ModuleData` 下：KV 快照太大，且原生启动 Ubuntu 时也要能从
-`/media/cyx3705/系统/ModuleServicesData/Ratio` 跑同一份脚本。脚本都按自身位置找根目录（`scripts/service_root.py`、`scripts/lib/service-root.sh`），不写死盘符。
+先安装 MSVC x64、Windows SDK、CMake 与 CUDA Toolkit 12.8+。构建复用 WSL 版同一个上游提交和 SHA256、原封不动的 `echo-kv.h` 与 `patch_server.py`，再追加 `patch_native.py` 的 C ABI；不重写批量选义、KV 续接和推理队列。
 
-## 部署
-
-`ratio.local.start` 在服务没在跑时先把本目录同步到运行区（内容相同的文件不动，只覆盖变了的，从不删运行区的数据），再执行
-`scripts/start-wsl-model-service.ps1`。本目录的文件以嵌入资源随 Ratio.dll 发布，所以运行区的脚本永远来自已发布的 Ratio 版本；
-**不要直接改运行区的脚本**，下次启动会被覆盖。
-
-编译产物不随包走：`bash scripts/echo-kv/build.sh`（在运行区执行）按固定上游提交下载、校验、打补丁、构建，库用相对软链接接到 `linux-ollama/`。
-
-## 验证
-
-```bash
-cd /mnt/f/ModuleServicesData/Ratio/scripts
-python3 -m unittest test_model_switch test_kv_disk_cache test_local_ai_cache_proxy
-python3 echo-kv/test_proxy.py
+```powershell
+powershell -NoProfile -ExecutionPolicy Bypass -File b-Code-Service/scripts/echo-kv/build-native.ps1
+# 上一命令输出 DLL 目录；下面只生成候选，不进行部署：
+dotnet build b-Code/Ratio/Ratio.csproj -c Release -p:RatioNativeRoot=<DLL目录> -p:RequireNativeRuntime=true
 ```
 
-`服务历史.md` 是并入前的完整记录（共享 KV、换模、C++ 代理的取舍与实测），路径已改成新位置；其中的实测数字是当时的单次样例。
+DLL 随 Ratio.dll 嵌入并在首次启动时解出到运行区 `native/bin`，运行机无需安装编译工具。`-SourceArchive` 可使用已有的、校验匹配的上游源码包。`-BuildRoot` 应为新的临时构建目录；脚本不删除既有源码目录。`-CpuOnly` 只用于编译验证，不代表通过 CUDA 验收。
+
+模块直接调用 C ABI；现有 JSON/SSE 处理器在同进程内继续向原推理队列提交任务。C# 的 `HttpRequestMessage` / `HttpResponseMessage` 在这里仅为内部请求和响应对象，不产生网络请求。远端供应商保持原 HTTP 传输。原生模式不提供外部 OpenAI HTTP 监听；外部消费者通过宿主 `ratio.*` 接入。
+
+`ratio.local.start/status/stop/use` 管理本进程模型；自动加载、单模型限制、换模失败回退、请求取消与 DLL 安全卸载由 Ratio 负责。其他本地模型服务仍在运行时，原生启动明确拒绝同时加载第二份生产模型。Linux 模型快照保留，Windows 原生快照使用独立命名空间。
+
+真实 DLL 验收（显式选择独立测试模型，测试会加载该模型；不指向正在使用的生产模型）：
+
+```powershell
+$env:RATIO_NATIVE_LIVE_DLL = '<完整 DLL 路径>'
+$env:RATIO_NATIVE_LIVE_MODEL = '<GGUF 路径>'
+$env:RATIO_NATIVE_LIVE_DEVICE = 'CUDA0' # CPU 验收用 none
+$env:RATIO_NATIVE_ONLY = '1'
+dotnet run --project b-Code/Ratio.Tests/Ratio.Tests.csproj -c Release -p:NuGetAudit=false
+```
+
+验收覆盖真实批处理与逐个标签一致、append、流式生成、零租约、双槽快照和 DLL 内重启；CUDA 模式另验管理层启动/换模/停止/重载。离线验证时清除上述环境变量。大型原生依赖按文件流式解出，不通过源文件清单构造整套 CUDA 库的内存副本。快照身份包含整套 DLL 和模型 blob 摘要，依赖或模型更换后不会复用旧状态。
+
+
+固定 32 项选义基准：设置 `RATIO_NATIVE_BENCH=dll` 与 DLL/GGUF 环境变量后运行 commands.test。1 次预热、5 次计时，仅测推理链路，不包含网页 DOM。历史同模型对照保存在现行约定。

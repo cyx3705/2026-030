@@ -15,7 +15,7 @@
       "ai-module"
     ],
     "status": "active",
-    "version": "0.10.0",
+    "version": "0.12.0",
     "branch": "main"
   },
   "paths": {
@@ -57,7 +57,10 @@
     "test": "dotnet run --project .\\b-Code\\Ratio.Tests\\Ratio.Tests.csproj -c Release -p:NuGetAudit=false",
     "verify": "powershell -NoProfile -ExecutionPolicy Bypass -File .\\b-Code\\Test-ProjectContract.ps1 -Instantiation",
     "run": null,
-    "package": "powershell -NoProfile -ExecutionPolicy Bypass -File .\\b-Code\\Ratio\\eng\\Build-RatioPackage.ps1"
+    "package": "powershell -NoProfile -ExecutionPolicy Bypass -File .\\b-Code\\Ratio\\eng\\Build-RatioPackage.ps1",
+    "buildNative": "powershell -NoProfile -ExecutionPolicy Bypass -File .\\b-Code-Service\\scripts\\echo-kv\\build-native.ps1",
+    "testNative": "python b-Code-Service/scripts/echo-kv/test_native.py --archive <pinned-llama-source.tar.gz> --compiler <C++17-compiler>",
+    "benchmarkNative": "Set RATIO_NATIVE_BENCH=dll and run commands.test; see b-Code-Service/README.md. Explicit live throughput test, never stops an existing model."
   },
   "externalDependencies": [
     "HistoryVulcan 6.0.0 或更新的发布快照：C:\\OneHistory\\HistoryClio\\2026-023-HistoryVulcan\\z-Publish",
@@ -65,7 +68,8 @@
     "DeepSeek 开放平台：https://api.deepseek.com",
     "博查 Web Search API：https://api.bochaai.com（ratio.chat.* web=true 时代模型搜索）",
     "阿里云百炼 DashScope OpenAI 兼容接口：https://dashscope.aliyuncs.com/compatible-mode/v1（images= 时的识图供应商 qwen）",
-    "本机推理服务运行区 F:/ModuleServicesData/Ratio（F 盘特例，RATIO_LOCAL_ROOT 可改）：WSL Ubuntu、编译产物与 CUDA 运行库、KV 快照；模型在 F:/Models。源码在 b-Code-Service，由 ratio.local.start 部署"
+    "本机推理服务运行区 F:/ModuleServicesData/Ratio（F 盘特例，RATIO_LOCAL_ROOT 可改）：Windows 原生 DLL、CUDA 运行库与独立 KV 快照；仅使用定制 Windows DLL。模型在 F:/Models，RATIO_MODEL_ROOT 可改。源码在 b-Code-Service，由 ratio.local.start 部署",
+    "RATIO-NATIVE-001: Windows x64; Visual Studio MSVC x64 + Windows SDK + CMake; NVIDIA CUDA Toolkit 12.8+ (build only). Native runtime DLLs are embedded via RatioNativeRoot/RATIO_NATIVE_ROOT; no driver installer is bundled."
   ],
   "contextExclusions": [
     "z-Publish/**",

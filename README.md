@@ -1,16 +1,16 @@
-# Ratio
+﻿# Ratio
 
 > 推理资源模块：本机推理服务与远端模型统一接成宿主指令
 
 ## 定位
 
 Ratio（拉丁语「推理、理性」；原名 HistoryApollo，0.6.0 改名）把本机与远端的推理资源变成 HistoryVulcan 指令：
-本机统一推理服务（WSL 里的 llama-server 加 C++ 代理，0.7.0 起源码在本仓 `b-Code-Service/`）是供应商 `local`，免密钥，
+本机推理缺省由 Ratio 直接加载自有 `ratio-inference.dll`（Windows x64/CUDA，源码在 `b-Code-Service/`），供应商仍为 `local`，免密钥，
 启停与换模走 `ratio.local.*`；远端内置 DeepSeek，可按需联网搜索（博查），可附本机图片交给识图模型（内置通义千问）。
 每一轮往返实时写进控制台。
 
-- 它只做一件事——**把一次模型调用说清楚**，外加本机推理服务的状态、启停与换模。
-- 会话历史、提示词工程、业务重试编排和逐字流式输出都属于调用方；本机连接被拒绝时由模块检查服务、按需启动并重发一次。
+- Ratio 拥有本机推理库、模型生命周期、共享 KV 与调度，同时把远端推理接成统一指令。
+- 会话历史、提示词工程、业务重试编排和逐字流式输出都属于调用方；原生后端首次调用按需加载模型。
 
 ## 概况
 
@@ -60,9 +60,9 @@ ratio.chat.ask prompt=这张图纸是什么零件 images=D:\图纸.png
 | --- | --- |
 | `b-Code/Ratio/` | 模块源码、manifest 与 `eng/` 构建脚本 |
 | `b-Code/Ratio.Tests/` | 自动验证 |
-| `b-Code-Service/` | 本机推理服务源码（WSL 脚本、配置、C++ 代理与 KV 扩展），随 DLL 发布、启动时部署到运行区 |
+| `b-Code-Service/` | 本机推理源码（Windows DLL 接口、构建、配置与共用 KV 扩展），随 DLL 发布、启动时部署到运行区 |
 | `b-Code/` | 项目合同检查 |
-| `b-Office/` | `current/现行约定.md`，唯一的长期文档 |
+| `b-Office/` | `现行约定.md`，唯一的长期文档 |
 | `z-Publish/` | 正式快照与 `history/` 归档，由宿主管线写入 |
 
 ## 构建与验证
@@ -72,6 +72,8 @@ dotnet build .\b-Code\Ratio\Ratio.csproj -c Release -p:NuGetAudit=false
 dotnet run --project .\b-Code\Ratio.Tests\Ratio.Tests.csproj -c Release -p:NuGetAudit=false
 powershell -NoProfile -ExecutionPolicy Bypass -File .\b-Code\Test-ProjectContract.ps1 -Instantiation
 ```
+
+原生 DLL 构建与验收见 [服务源码说明](b-Code-Service/README.md)。正式候选构建需要 `RatioNativeRoot` 或 `RATIO_NATIVE_ROOT` 指向已构建的 DLL 目录；运行机无需安装编译器或 CUDA Toolkit。本机仅支持定制 DLL；不再提供 WSL 或 HTTP 后端。原生模式不开放 HTTP 监听，外部调用统一经 `ratio.*`。
 
 自动验证全程离线：对话用例走假传输，不出网、不计费。需要联网实调时设 `RATIO_LIVE=1` 再跑测试。
 

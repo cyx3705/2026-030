@@ -23,7 +23,7 @@ internal static class ServiceBundle
         foreach (var name in assembly.GetManifestResourceNames())
         {
             var normalized = name.Replace('\\', '/');
-            if (!normalized.StartsWith(Prefix, StringComparison.Ordinal))
+            if (!normalized.StartsWith(Prefix, StringComparison.Ordinal) || normalized.StartsWith("service/native/bin/", StringComparison.Ordinal))
                 continue;
             using var stream = assembly.GetManifestResourceStream(name)!;
             using var buffer = new MemoryStream();
@@ -32,6 +32,37 @@ internal static class ServiceBundle
         }
 
         return files.OrderBy(file => file.RelativePath, StringComparer.Ordinal).ToList();
+    }
+
+    /// <summary>逐文件流式解出大型原生依赖，避免为 CUDA 库构造多份 byte[]。</summary>
+    internal static void DeployNative(string root)
+    {
+        var assembly = typeof(ServiceBundle).Assembly;
+        const string nativePrefix = "service/native/bin/";
+        foreach (var name in assembly.GetManifestResourceNames())
+        {
+            var normalized = name.Replace('\\', '/');
+            if (!normalized.StartsWith(nativePrefix, StringComparison.Ordinal)) continue;
+            var filename = normalized[nativePrefix.Length..];
+            if (Path.GetFileName(filename) != filename) throw new RatioInputException("原生依赖文件名无效");
+            var target = Path.Combine(root, "native", "bin", filename);
+            using var source = assembly.GetManifestResourceStream(name)!;
+            if (File.Exists(target))
+            {
+                using var installed = File.OpenRead(target);
+                if (installed.Length == source.Length && System.Security.Cryptography.SHA256.HashData(installed).AsSpan()
+                    .SequenceEqual(System.Security.Cryptography.SHA256.HashData(source))) continue;
+                source.Position = 0;
+            }
+            Directory.CreateDirectory(Path.GetDirectoryName(target)!);
+            var temporary = target + ".ratio-tmp";
+            try
+            {
+                using (var output = File.Create(temporary)) source.CopyTo(output);
+                File.Move(temporary, target, true);
+            }
+            finally { File.Delete(temporary); }
+        }
     }
 
     /// <summary>把服务文件同步到运行区；返回实际写了几个。</summary>

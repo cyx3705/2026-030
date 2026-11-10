@@ -3,8 +3,8 @@
 
   <PropertyGroup>
     <!--
-      net8.0 而不是 net8.0-windows：本模块只有 HttpClient 与 JSON，没有窗口、
-      没有 Win32 依赖，因此装载上下文能真正卸载，改它不必停宿主。
+      保留 net8.0 以兼容宿主与离线测试；原生本机后端显式检查 Windows x64，
+      卸载先停止推理并等待回调退出，未停稳时保留原生 DLL 映射。
     -->
     <TargetFramework>net8.0</TargetFramework>
     <Nullable>enable</Nullable>
@@ -38,4 +38,17 @@
                       Exclude="..\..\b-Code-Service\**\__pycache__\**;..\..\b-Code-Service\*.md"
                       LogicalName="service/%(RecursiveDir)%(Filename)%(Extension)" />
   </ItemGroup>
+
+  <!-- Build-native.ps1 produces this directory outside the repository. Native
+       libraries are embedded, then materialized by ServiceBundle; the host's
+       byte-loaded module does not need a native DLL in its package load slot. -->
+  <PropertyGroup>
+    <RatioNativeRoot Condition="'$(RatioNativeRoot)' == ''">$(RATIO_NATIVE_ROOT)</RatioNativeRoot>
+  </PropertyGroup>
+  <ItemGroup Condition="'$(RatioNativeRoot)' != ''">
+    <EmbeddedResource Include="$(RatioNativeRoot)\*.dll" LogicalName="service/native/bin/%(Filename)%(Extension)" />
+  </ItemGroup>
+  <Target Name="ValidateNativeRuntime" BeforeTargets="BeforeBuild" Condition="'$(RequireNativeRuntime)' == 'true'">
+    <Error Condition="!Exists('$(RatioNativeRoot)\ratio-inference.dll')" Text="Native runtime missing: build-native.ps1 first; set RatioNativeRoot or RATIO_NATIVE_ROOT." />
+  </Target>
 </Project>

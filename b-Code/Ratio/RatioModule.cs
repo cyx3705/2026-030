@@ -1,4 +1,4 @@
-using HistoryVulcan.Core.Modules;
+﻿using HistoryVulcan.Core.Modules;
 
 namespace Ratio;
 
@@ -22,7 +22,6 @@ public sealed class RatioModule : IModuleContextAware, IDisposable
     private WebSearchClient? _search;
     private LocalService? _local;
     private LocalInference? _inference;
-    private LocalServiceRecovery? _recovery;
 
     /// <summary>宿主在装载时注入权威指令总线与命令注册器。</summary>
     public void Attach(IModuleContext context)
@@ -33,21 +32,15 @@ public sealed class RatioModule : IModuleContextAware, IDisposable
 
         lock (_gate)
         {
-            _recovery?.Disable();
             _client?.Dispose();
             _search?.Dispose();
-            _local?.Dispose();
             _inference?.Dispose();
+            _local?.Dispose();
             var search = new WebSearchClient(RatioRuntime.Providers);
             var local = new LocalService(RatioRuntime.Providers);
             var endpoint = () => RatioRuntime.Providers.Resolve(ProviderStore.LocalProvider).BaseUrl;
-            var recovery = new LocalServiceRecovery(endpoint, async cancellation =>
-            {
-                await local.StartAsync(600, new Progress<string>(line => RatioRuntime.Log("local", line)), cancellation).ConfigureAwait(false);
-            });
-            _recovery = recovery;
-            var client = new ChatClient(recovery.CreateClient());
-            var inference = new LocalInference(endpoint, recovery.CreateClient());
+            var client = new ChatClient(new HttpClient(local.LocalTransport(new HttpClientHandler())));
+            var inference = new LocalInference(endpoint, new HttpClient(local.LocalTransport(new HttpClientHandler())));
             _inference = inference;
             _client = client;
             _search = search;
@@ -73,8 +66,6 @@ public sealed class RatioModule : IModuleContextAware, IDisposable
         LocalInference? inference;
         lock (_gate)
         {
-            _recovery?.Disable();
-            _recovery = null;
             inference = _inference;
             _inference = null;
             client = _client;
@@ -87,7 +78,7 @@ public sealed class RatioModule : IModuleContextAware, IDisposable
 
         client?.Dispose();
         search?.Dispose();
-        local?.Dispose();
         inference?.Dispose();
+        local?.Dispose();
     }
 }

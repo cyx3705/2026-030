@@ -1,4 +1,4 @@
-using System.Net;
+﻿using System.Net;
 using System.Text.Json;
 using Ratio;
 using HistoryVulcan.Core.Commands;
@@ -27,12 +27,6 @@ var tests = new (string Name, Func<Task> Run)[]
     ("vision provider", TestVisionProviderAsync),
     ("chat images", TestChatImagesAsync),
     ("local provider keyless", TestLocalProviderAsync),
-    ("local status", TestLocalStatusAsync),
-    ("local switch", TestLocalSwitchAsync),
-    ("local start and stop", TestLocalStartStopAsync),
-    ("local automatic recovery", TestLocalRecoveryAsync),
-    ("local recovery boundaries", TestLocalRecoveryBoundariesAsync),
-    ("local recovery concurrency and cooldown", TestLocalRecoveryConcurrencyAsync),
     ("local commands", TestLocalCommandsAsync),
     ("adopt previous store", TestAdoptPreviousStoreAsync),
     ("service bundle", TestServiceBundleAsync),
@@ -45,6 +39,12 @@ var tests = new (string Name, Func<Task> Run)[]
     ("inference commands", TestInferenceCommandsAsync),
     ("chat schema and think", TestChatSchemaAsync),
     ("embed texts", TestEmbedTextsAsync),
+    ("native lifecycle and batch configuration", NativeTests.Lifecycle),
+    ("native unload during model loading", NativeTests.UnloadDuringLoad),
+    ("native rollback and snapshot failure", NativeTests.Rollback),
+    ("native routing and lease drain", NativeTests.RoutingAndDrain),
+    ("native stream cancellation", NativeTests.StreamAndCancellation),
+    ("native automatic startup concurrency and cooldown", NativeTests.AutomaticStartup),
 };
 
 // 联网实调默认不跑：它要花钱、要外网，且依赖本机已配置的真实密钥。
@@ -61,6 +61,11 @@ if (string.Equals(Environment.GetEnvironmentVariable("RATIO_LIVE_WEB"), "1", Str
     tests = [.. tests, ("live web search call", TestLiveWebCallAsync)];
 
 var failed = 0;
+if (!string.IsNullOrEmpty(Environment.GetEnvironmentVariable("RATIO_NATIVE_LIVE_DLL")))
+    tests = Environment.GetEnvironmentVariable("RATIO_NATIVE_ONLY") == "1"
+        ? [("native live DLL", NativeTests.Live)] : [.. tests, ("native live DLL", NativeTests.Live)];
+if (!string.IsNullOrEmpty(Environment.GetEnvironmentVariable("RATIO_NATIVE_BENCH")))
+    tests = [("native same-model benchmark", NativeBenchmark.Run)];
 foreach (var test in tests)
 {
     try
@@ -111,6 +116,7 @@ static Task TestKeyRoundtripAsync()
     Throws<RatioInputException>(() => reopened.SetKey(null, "  "));
     Throws<RatioInputException>(() => reopened.SetKey(null, "sk-with space"));
     Throws<RatioInputException>(() => reopened.SetBaseUrl(null, "ftp://example.com"));
+    Throws<RatioInputException>(() => reopened.SetBaseUrl("local", "http://localhost:9999/v1"));
     return Task.CompletedTask;
 }
 
@@ -883,262 +889,10 @@ static async Task TestLocalProviderAsync()
     Equal("qwen3:8b", document.RootElement.GetProperty("model").GetString()!);
 }
 
-static async Task TestLocalStatusAsync()
-{
-    using var local = LocalFixture.Create((request, _) =>
-        request.RequestUri!.ToString() == "http://127.0.0.1:11435/v1/echo/models"
-            ? (HttpStatusCode.OK, LocalFixture.Inventory("qwen3:8b"))
-            : (HttpStatusCode.ServiceUnavailable, "down"));
-
-    var status = await local.StatusAsync(CancellationToken.None);
-    True(status.Running, "代理答话即在运行");
-    Equal("http://127.0.0.1:11435", status.Endpoint);
-    Equal("qwen3:8b", status.Current!);
-    Equal(4, status.Models.Count);
-    True(!status.Models.Single(model => model.Name == "qwen3.5:27b").Supported, "27B 未配置显存方案");
-    True(status.Others.All(other => !other.Up), "其他监听都不在");
-    True(LocalService.Describe(status).Contains("* qwen3:8b", StringComparison.Ordinal), "当前模型要标星");
-    using var json = JsonDocument.Parse(LocalService.ToJson(status));
-    Equal("qwen3:8b", json.RootElement.GetProperty("current").GetString()!);
-
-    using var down = LocalFixture.Create((_, _) => throw new HttpRequestException("refused"));
-    var off = await down.StatusAsync(CancellationToken.None);
-    True(!off.Running, "代理不答话即视为没在跑");
-    True(LocalService.Describe(off).Contains("ratio.local.start", StringComparison.Ordinal), "要指出怎么启动");
-}
-
-static async Task TestLocalSwitchAsync()
-{
-    var polls = 0;
-    string? posted = null;
-    using var local = LocalFixture.Create((request, body) =>
-    {
-        var url = request.RequestUri!.ToString();
-        if (url.EndsWith("/v1/echo/models", StringComparison.Ordinal))
-            return (HttpStatusCode.OK, LocalFixture.Inventory(polls >= 2 ? "gemma4:12b" : "qwen3:8b"));
-        if (!url.EndsWith("/v1/echo/model", StringComparison.Ordinal))
-            return (HttpStatusCode.ServiceUnavailable, "down");
-        if (request.Method == HttpMethod.Post)
-        {
-            posted = body;
-            Equal("application/json", request.Content!.Headers.ContentType!.MediaType!);
-            True(!request.Headers.Contains("Origin"), "换模请求不能带 Origin");
-            return (HttpStatusCode.OK, """{"state":"switching","phase":"waiting","current":"qwen3:8b","target":"gemma4:12b"}""");
-        }
-
-        polls++;
-        return polls == 1
-            ? (HttpStatusCode.OK, """{"state":"switching","phase":"loading","current":"qwen3:8b","target":"gemma4:12b"}""")
-            : (HttpStatusCode.OK, """{"state":"ready","phase":"ready","current":"gemma4:12b","target":"gemma4:12b"}""");
-    });
-
-    var progress = new ListProgress();
-    var status = await local.SwitchAsync("gemma4:12b", 60, progress, CancellationToken.None);
-    Equal("gemma4:12b", status.Current!);
-    using (var body = JsonDocument.Parse(posted!))
-        Equal("gemma4:12b", body.RootElement.GetProperty("name").GetString()!);
-    True(progress.Items.Any(item => item.Contains("加载新模型", StringComparison.Ordinal)), "阶段要逐个报出");
-
-    await ThrowsAsync<RatioInputException>(() => local.SwitchAsync("nope", 60, null, CancellationToken.None));
-    await ThrowsAsync<RatioInputException>(() => local.SwitchAsync("qwen3.5:27b", 60, null, CancellationToken.None));
-
-    using var failing = LocalFixture.Create((request, _) =>
-    {
-        if (request.RequestUri!.ToString().EndsWith("/v1/echo/models", StringComparison.Ordinal))
-            return (HttpStatusCode.OK, LocalFixture.Inventory("qwen3:8b"));
-        if (request.Method == HttpMethod.Post)
-            return (HttpStatusCode.OK, """{"state":"switching","phase":"waiting"}""");
-        return (HttpStatusCode.OK, """{"state":"failed","phase":"failed","current":"qwen3:8b","error":"显存不足；已恢复原模型"}""");
-    });
-    var failure = await ThrowsAsync<RatioRemoteException>(() => failing.SwitchAsync("gemma4:12b", 60, null, CancellationToken.None));
-    True(failure.Message.Contains("已恢复原模型", StringComparison.Ordinal), "要带服务的原话");
-}
-
-static async Task TestLocalStartStopAsync()
-{
-    var root = Path.Combine(Path.GetTempPath(), "Ratio.Tests", Guid.NewGuid().ToString("N"));
-    Directory.CreateDirectory(Path.Combine(root, "scripts"));
-    File.WriteAllText(Path.Combine(root, "scripts", "start-wsl-model-service.ps1"), string.Empty);
-    File.WriteAllText(Path.Combine(root, "scripts", "wsl-model-service.sh"), string.Empty);
-    try
-    {
-        var running = false;
-        var runs = new List<string>();
-        using var local = new LocalService(
-            () => "http://127.0.0.1:11435/v1",
-            FakeTransport.Http((request, _) =>
-                running && request.RequestUri!.ToString().EndsWith("/v1/echo/models", StringComparison.Ordinal)
-                    ? (HttpStatusCode.OK, LocalFixture.Inventory("qwen3:8b"))
-                    : (HttpStatusCode.ServiceUnavailable, "down")),
-            (file, arguments, _, output, _) =>
-            {
-                runs.Add($"{file} {string.Join(' ', arguments)}");
-                output?.Report("ok");
-                running = arguments[^1] != "stop";
-                return Task.FromResult(0);
-            },
-            root,
-            () => [new ServiceFile("config/x.json", "{}"u8.ToArray())])
-        { PollInterval = TimeSpan.FromMilliseconds(1) };
-
-        var progress = new ListProgress();
-        var (status, started) = await local.StartAsync(60, progress, CancellationToken.None);
-        True(started && status.Running, "应执行启动脚本并等到代理答话");
-        True(runs[0].StartsWith("powershell.exe -NoProfile", StringComparison.Ordinal), runs[0]);
-        True(File.Exists(Path.Combine(root, "config", "x.json")), "启动前应先部署服务文件");
-        True(progress.Items[0].Contains("1/1", StringComparison.Ordinal), progress.Items[0]);
-
-        (_, started) = await local.StartAsync(60, null, CancellationToken.None);
-        True(!started, "已在运行就不再执行脚本");
-        Equal(1, runs.Count);
-
-        var stopped = await local.StopAsync(60, null, CancellationToken.None);
-        True(!stopped.Running, "停止后不再答话");
-        Equal($"wsl.exe -d Ubuntu -e bash {LocalService.ToWslPath(Path.Combine(root, "scripts", "wsl-model-service.sh"))} stop", runs[1]);
-        Equal("/mnt/f/LinuxModuleServices/scripts/x.sh", LocalService.ToWslPath(@"F:\LinuxModuleServices\scripts\x.sh"));
-
-        using var missing = new LocalService(
-            () => "http://127.0.0.1:11435/v1",
-            FakeTransport.Http((_, _) => (HttpStatusCode.ServiceUnavailable, string.Empty)),
-            (_, _, _, _, _) => Task.FromResult(0),
-            Path.Combine(root, "none"));
-        await ThrowsAsync<RatioInputException>(() => missing.StartAsync(60, null, CancellationToken.None));
-    }
-    finally
-    {
-        Directory.Delete(root, recursive: true);
-    }
-}
-
-static async Task TestLocalRecoveryAsync()
-{
-    using var scope = new StoreScope();
-    var running = false;
-    var launches = 0;
-    var root = Path.Combine(Path.GetTempPath(), "Ratio.Tests", Guid.NewGuid().ToString("N"));
-    Directory.CreateDirectory(Path.Combine(root, "scripts"));
-    File.WriteAllText(Path.Combine(root, "scripts", "start-wsl-model-service.ps1"), "# fake");
-    try
-    {
-        using var local = new LocalService(() => scope.Store.Resolve("local").BaseUrl,
-            FakeTransport.Http((request, _) => running && request.RequestUri!.AbsolutePath == "/v1/echo/models"
-                ? (HttpStatusCode.OK, LocalFixture.Inventory("qwen3:8b"))
-                : throw RefusedConnection()),
-            async (_, _, _, _, token) => { launches++; await Task.Delay(10, token); running = true; return 0; }, root);
-        var recovery = new LocalServiceRecovery(() => local.ServiceUrl,
-            async token => { await local.StartAsync(60, null, token); });
-        var calls = 0;
-        using var client = new ChatClient(new HttpClient(new LocalServiceRecoveryHandler(new FakeTransport((request, body) =>
-        {
-            calls++;
-            if (!running) throw RefusedConnection();
-            if (request.Method == HttpMethod.Get)
-                return (HttpStatusCode.OK, """{"data":[{"id":"qwen3:8b"}]}""");
-            True(body!.Contains("hello"), "重放必须保留请求体");
-            return (HttpStatusCode.OK, """{"model":"qwen3:8b","choices":[{"message":{"content":"ok"}}]}""");
-        }), recovery)));
-        var result = await client.CompleteAsync(scope.Store.Resolve("local"), [new ChatMessage("user", "hello")], new ChatOptions(), CancellationToken.None);
-        Equal("ok", result.Content);
-        Equal(1, launches);
-        Equal(3, calls); // GET 被拒、恢复后 GET、POST。
-        await local.StartAsync(60, null, CancellationToken.None);
-        Equal(1, launches);
-
-        // 自动与手动启动同时发生，也只能执行一次启动脚本。
-        running = false;
-        var starts = await Task.WhenAll(Enumerable.Range(0, 8).Select(_ => local.StartAsync(60, null, CancellationToken.None)));
-        Equal(2, launches);
-        Equal(1, starts.Count(item => item.Started));
-    }
-    finally { Directory.Delete(root, true); }
-}
-
-static HttpRequestException RefusedConnection()
-    => new("refused", new System.Net.Sockets.SocketException((int)System.Net.Sockets.SocketError.ConnectionRefused));
-
-static async Task TestLocalRecoveryBoundariesAsync()
-{
-    var starts = 0;
-    var recovery = new LocalServiceRecovery(() => "http://127.0.0.1:11435/v1", _ => { starts++; return Task.CompletedTask; });
-    foreach (var url in new[] { "https://example.com/v1/chat/completions", "http://127.0.0.1:11434/v1/models" })
-    {
-        using var other = new HttpClient(new LocalServiceRecoveryHandler(new FakeTransport((_, _) => throw RefusedConnection()), recovery));
-        await ThrowsAsync<HttpRequestException>(() => other.GetAsync(url));
-    }
-    using (var http = new HttpClient(new LocalServiceRecoveryHandler(new FakeTransport((_, _) => (HttpStatusCode.ServiceUnavailable, "busy")), recovery)))
-    using (var response = await http.GetAsync("http://127.0.0.1:11435/v1/models"))
-        Equal(HttpStatusCode.ServiceUnavailable, response.StatusCode);
-    using (var http = new HttpClient(new LocalServiceRecoveryHandler(new FakeTransport((_, _) => throw new HttpRequestException("DNS failed")), recovery)))
-        await ThrowsAsync<HttpRequestException>(() => http.GetAsync("http://127.0.0.1:11435/v1/models"));
-    using (var http = new HttpClient(new LocalServiceRecoveryHandler(new FakeTransport((_, _) => throw new TaskCanceledException("timeout")), recovery)))
-        await ThrowsAsync<TaskCanceledException>(() => http.GetAsync("http://127.0.0.1:11435/v1/models"));
-    Equal(0, starts);
-
-    var sends = 0;
-    using (var http = new HttpClient(new LocalServiceRecoveryHandler(new FakeTransport((_, _) => { sends++; throw RefusedConnection(); }), recovery)))
-        await ThrowsAsync<HttpRequestException>(() => http.GetAsync("http://127.0.0.1:11435/v1/models"));
-    Equal(1, starts);
-    Equal(2, sends); // 启动后仍拒绝连接，必须结束，不能无限重发。
-    recovery.Disable();
-    using (var http = new HttpClient(new LocalServiceRecoveryHandler(new FakeTransport((_, _) => throw RefusedConnection()), recovery)))
-        await ThrowsAsync<HttpRequestException>(() => http.GetAsync("http://127.0.0.1:11435/v1/models"));
-    Equal(1, starts);
-}
-
-static async Task TestLocalRecoveryConcurrencyAsync()
-{
-    var starts = 0;
-    var running = false;
-    var recovery = new LocalServiceRecovery(() => "http://127.0.0.1:11435/v1", async token =>
-    {
-        if (running) return;
-        starts++;
-        await Task.Delay(20, token);
-        running = true;
-    });
-    using (var http = new HttpClient(new LocalServiceRecoveryHandler(new FakeTransport((_, body) =>
-    {
-        if (!running) throw RefusedConnection();
-        return (HttpStatusCode.OK, body ?? "");
-    }), recovery)))
-    {
-        await Task.WhenAll(Enumerable.Range(0, 8).Select(async i =>
-        {
-            using var request = new HttpRequestMessage(HttpMethod.Post, "http://127.0.0.1:11435/completion") { Content = new StringContent($"body-{i}") };
-            using var response = await http.SendAsync(request);
-            Equal($"body-{i}", await response.Content.ReadAsStringAsync());
-        }));
-    }
-    Equal(1, starts);
-
-    starts = 0;
-    var failing = new LocalServiceRecovery(() => "http://127.0.0.1:11435/v1", _ =>
-    {
-        starts++;
-        throw new RatioRemoteException("fake startup failure");
-    });
-    using var failed = new HttpClient(new LocalServiceRecoveryHandler(new FakeTransport((_, _) => throw RefusedConnection()), failing));
-    for (var i = 0; i < 3; i++)
-        await ThrowsAsync<HttpRequestException>(() => failed.GetAsync("http://127.0.0.1:11435/v1/models"));
-    Equal(1, starts);
-
-    // 等待启动时可取消，取消不能锁死恢复门闩。
-    var entered = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
-    var cancellable = new LocalServiceRecovery(() => "http://127.0.0.1:11435", async token =>
-    {
-        entered.TrySetResult();
-        await Task.Delay(Timeout.Infinite, token);
-    });
-    using var cancellation = new CancellationTokenSource();
-    var pending = cancellable.RecoverAsync(cancellation.Token);
-    await entered.Task;
-    cancellation.Cancel();
-    await ThrowsAsync<OperationCanceledException>(() => pending);
-}
-
 static Task TestLocalCommandsAsync()
 {
-    using var local = LocalFixture.Create((_, _) => (HttpStatusCode.ServiceUnavailable, string.Empty));
+    using var scope = new StoreScope();
+    using var local = new LocalService(scope.Store);
     var registry = new Registrar();
     RatioLocalCommands.Register(registry, local);
     foreach (var name in new[] { "ratio.local.status", "ratio.local.start", "ratio.local.stop", "ratio.local.use" })
@@ -1160,13 +914,12 @@ static Task TestServiceBundleAsync()
     var names = files.Select(file => file.RelativePath).ToHashSet(StringComparer.Ordinal);
     foreach (var required in new[]
              {
-                 "scripts/wsl-model-service.sh", "scripts/start-wsl-model-service.ps1", "scripts/model_switch.py",
-                 "scripts/lib/service-root.sh", "scripts/echo-kv/echo-proxy.cpp", "config/service-catalog.json", "config/echo-models.json",
+                 "scripts/echo-kv/ratio-native.cpp", "scripts/echo-kv/echo-kv.h",
+                 "scripts/echo-kv/build-native.ps1", "config/echo-models.json",
              })
         True(names.Contains(required), $"服务包缺 {required}");
     True(!names.Any(name => name.EndsWith(".md", StringComparison.Ordinal) || name.Contains("__pycache__", StringComparison.Ordinal)), "文档与缓存不进包");
-    foreach (var file in files.Where(file => file.RelativePath.EndsWith(".sh", StringComparison.Ordinal)))
-        True(!file.Content.Contains((byte)'\r'), $"{file.RelativePath} 必须是 LF");
+    True(!names.Any(name => name.EndsWith(".sh", StringComparison.Ordinal) || name.Contains("proxy", StringComparison.OrdinalIgnoreCase)), "不再打包旧服务或代理实现");
 
     var root = Path.Combine(Path.GetTempPath(), "Ratio.Tests", Guid.NewGuid().ToString("N"));
     try
@@ -1175,11 +928,22 @@ static Task TestServiceBundleAsync()
         File.WriteAllText(Path.Combine(root, "status", "keep.json"), "{}");
         Equal(files.Count, ServiceBundle.Deploy(root, files));
         Equal(0, ServiceBundle.Deploy(root, files));
-        File.WriteAllText(Path.Combine(root, "scripts", "model_switch.py"), "changed");
+        File.WriteAllText(Path.Combine(root, "scripts", "echo-kv", "ratio-native.cpp"), "changed");
         Equal(1, ServiceBundle.Deploy(root, files));
         True(File.Exists(Path.Combine(root, "status", "keep.json")), "部署不删运行区自己的文件");
         Throws<RatioInputException>(() => ServiceBundle.Deploy(root, [new ServiceFile("../escape.txt", [1])]));
         Throws<RatioInputException>(() => ServiceBundle.Deploy(root, []));
+        // Candidate builds contain large native resources; stream them and verify
+        // byte identity without adding them to the in-memory source-file bundle.
+        ServiceBundle.DeployNative(root);
+        var assembly = typeof(ServiceBundle).Assembly;
+        foreach (var resource in assembly.GetManifestResourceNames().Where(name => name.StartsWith("service/native/bin/", StringComparison.Ordinal)))
+        {
+            using var source = assembly.GetManifestResourceStream(resource)!;
+            using var installed = File.OpenRead(Path.Combine(root, resource["service/".Length..]));
+            True(System.Security.Cryptography.SHA256.HashData(source).AsSpan().SequenceEqual(System.Security.Cryptography.SHA256.HashData(installed)), "原生资源解出字节一致");
+        }
+        ServiceBundle.DeployNative(root); // Idempotent, does not rewrite matching DLLs.
     }
     finally
     {
@@ -1473,27 +1237,6 @@ file sealed class StoreScope : IDisposable
         {
         }
     }
-}
-
-/// <summary>本机推理服务的测试替身：假传输、不许起进程、轮询间隔调到 1 毫秒。</summary>
-file static class LocalFixture
-{
-    public static LocalService Create(Func<HttpRequestMessage, string?, (HttpStatusCode, string)> respond)
-        => new(
-            () => "http://127.0.0.1:11435/v1",
-            FakeTransport.Http(respond),
-            (_, _, _, _, _) => throw new InvalidOperationException("不该起进程"),
-            @"F:\LinuxModuleServices")
-        { PollInterval = TimeSpan.FromMilliseconds(1) };
-
-    public static string Inventory(string current) => $$"""
-        {"managed":true,"current":"{{current}}","switch":{"state":"ready","phase":"ready","current":"{{current}}"},
-         "models":[
-          {"name":"qwen3.5:35b-a3b-q4_K_M","family":"qwen","context":262144,"size":21166758176,"installed":true,"supported":true,"reason":""},
-          {"name":"qwen3:8b","family":"qwen","context":32768,"size":5225374496,"installed":true,"supported":true,"reason":""},
-          {"name":"gemma4:12b","family":"gemma4","context":16384,"size":7000000000,"installed":true,"supported":true,"reason":""},
-          {"name":"qwen3.5:27b","family":"qwen","context":32768,"size":0,"installed":true,"supported":false,"reason":"尚未配置此模型的显存分配方案"}]}
-        """;
 }
 
 /// <summary>不出网的假传输：断言请求、给定响应。</summary>

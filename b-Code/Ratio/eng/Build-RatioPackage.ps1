@@ -14,7 +14,9 @@ param(
 
     [string]$OutputRoot,
 
-    [string]$HistoryVulcanPackageRoot
+    [string]$HistoryVulcanPackageRoot,
+
+    [string]$RatioNativeRoot = $env:RATIO_NATIVE_ROOT
 )
 
 Set-StrictMode -Version Latest
@@ -44,7 +46,10 @@ if ($projectManifest.project.version -ne $version) {
     throw "project.manifest.json ($($projectManifest.project.version)) 与 RatioVersion.props ($version) 不一致"
 }
 
-$buildProperties = @('-p:NuGetAudit=false')
+$buildProperties = @('-p:NuGetAudit=false', '-p:RequireNativeRuntime=true')
+if (-not [string]::IsNullOrWhiteSpace($RatioNativeRoot)) {
+    $buildProperties += "-p:RatioNativeRoot=$RatioNativeRoot"
+}
 if (-not [string]::IsNullOrWhiteSpace($HistoryVulcanPackageRoot)) {
     $buildProperties += "-p:HistoryVulcanPackageRoot=$HistoryVulcanPackageRoot"
 }
@@ -80,6 +85,22 @@ try {
         (Join-Path $stage 'SHA256SUMS'),
         [string[]]$lines,
         (New-Object System.Text.UTF8Encoding $false))
+
+    # Host 8 uses a NuGet ZIP envelope; payload and checksums remain identical.
+    Add-Type -AssemblyName System.IO.Compression
+    Add-Type -AssemblyName System.IO.Compression.FileSystem
+    $packagePath = Join-Path $stage "Ratio.$version.nupkg"
+    $archive = [IO.Compression.ZipFile]::Open($packagePath, [IO.Compression.ZipArchiveMode]::Create)
+    try {
+        foreach ($file in Get-ChildItem -LiteralPath $stage -File | Where-Object { $_.Extension -ne '.nupkg' }) {
+            [IO.Compression.ZipFileExtensions]::CreateEntryFromFile($archive, $file.FullName, $file.Name, [IO.Compression.CompressionLevel]::Optimal) | Out-Null
+        }
+        $entry = $archive.CreateEntry('Ratio.nuspec')
+        $writer = New-Object IO.StreamWriter($entry.Open(), (New-Object Text.UTF8Encoding $false))
+        try { $writer.Write("<package><metadata><id>Ratio</id><version>$version</version><authors>pinavia</authors><description>Ratio native inference</description></metadata></package>") }
+        finally { $writer.Dispose() }
+    }
+    finally { $archive.Dispose() }
 
     if (-not [string]::IsNullOrWhiteSpace($OutputRoot)) {
         $staged = [IO.Path]::GetFullPath($OutputRoot)
