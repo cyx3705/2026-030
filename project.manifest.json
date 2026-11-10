@@ -69,7 +69,7 @@
     "博查 Web Search API：https://api.bochaai.com（ratio.chat.* web=true 时代模型搜索）",
     "阿里云百炼 DashScope OpenAI 兼容接口：https://dashscope.aliyuncs.com/compatible-mode/v1（images= 时的识图供应商 qwen）",
     "本机推理服务运行区 F:/ModuleServicesData/Ratio（F 盘特例，RATIO_LOCAL_ROOT 可改）：Windows 原生 DLL、CUDA 运行库与独立 KV 快照；仅使用定制 Windows DLL。模型在 F:/Models，RATIO_MODEL_ROOT 可改。源码在 b-Code-Service，由 ratio.local.start 部署",
-    "RATIO-NATIVE-001: Windows x64; Visual Studio MSVC x64 + Windows SDK + CMake; NVIDIA CUDA Toolkit 12.8+ (build only). Native runtime DLLs are embedded via RatioNativeRoot/RATIO_NATIVE_ROOT; no driver installer is bundled."
+    "RATIO-NATIVE-001: Windows x64; Visual Studio MSVC x64 + Windows SDK + CMake; NVIDIA CUDA Toolkit 12.8+ (build only). Native runtime DLLs are embedded via RatioNativeRoot/RATIO_NATIVE_ROOT; cuBLAS runtime DLLs from the build output must be installed in native/bin separately to meet host package limits; no driver installer is bundled."
   ],
   "contextExclusions": [
     "z-Publish/**",

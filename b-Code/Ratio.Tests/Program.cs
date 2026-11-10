@@ -935,8 +935,16 @@ static Task TestServiceBundleAsync()
         Throws<RatioInputException>(() => ServiceBundle.Deploy(root, []));
         // Candidate builds contain large native resources; stream them and verify
         // byte identity without adding them to the in-memory source-file bundle.
-        ServiceBundle.DeployNative(root);
         var assembly = typeof(ServiceBundle).Assembly;
+        var resources = assembly.GetManifestResourceNames();
+        True(!resources.Any(name => name.StartsWith("service/native/bin/cublas", StringComparison.OrdinalIgnoreCase)), "cuBLAS must stay outside the bounded module package");
+        if (resources.Contains("service/native/bin/ggml-cuda.dll"))
+        {
+            Throws<RatioInputException>(() => ServiceBundle.DeployNative(root));
+            foreach (var library in new[] { "cublas64_12.dll", "cublasLt64_12.dll" })
+                File.WriteAllText(Path.Combine(root, "native", "bin", library), "machine-runtime");
+        }
+        ServiceBundle.DeployNative(root);
         foreach (var resource in assembly.GetManifestResourceNames().Where(name => name.StartsWith("service/native/bin/", StringComparison.Ordinal)))
         {
             using var source = assembly.GetManifestResourceStream(resource)!;

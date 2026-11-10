@@ -1,4 +1,4 @@
-namespace Ratio;
+﻿namespace Ratio;
 
 /// <summary>随 DLL 发布的一份服务文件：运行区里的相对路径与原始字节。</summary>
 internal sealed record ServiceFile(string RelativePath, byte[] Content);
@@ -63,6 +63,14 @@ internal static class ServiceBundle
             }
             finally { File.Delete(temporary); }
         }
+        // cuBLAS is a machine runtime, outside the module envelope (host limit:
+        // 128 MiB compressed / 512 MiB expanded). build-native outputs both
+        // libraries for installation beside our DLL. Never fetch binaries here.
+        var directory = Path.Combine(root, "native", "bin");
+        if (File.Exists(Path.Combine(directory, "ggml-cuda.dll")))
+            foreach (var library in new[] { "cublas64_12.dll", "cublasLt64_12.dll" })
+                if (!File.Exists(Path.Combine(directory, library)))
+                    throw new RatioInputException("缺少 NVIDIA 运行库 " + library + "；请将 build-native 构建输出中的 cuBLAS 库安装到 native/bin 后启动。模型尚未加载。");
     }
 
     /// <summary>把服务文件同步到运行区；返回实际写了几个。</summary>

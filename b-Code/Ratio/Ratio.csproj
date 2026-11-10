@@ -1,4 +1,4 @@
-<Project Sdk="Microsoft.NET.Sdk">
+﻿<Project Sdk="Microsoft.NET.Sdk">
   <Import Project="RatioVersion.props" />
 
   <PropertyGroup>
@@ -46,7 +46,7 @@
     <RatioNativeRoot Condition="'$(RatioNativeRoot)' == ''">$(RATIO_NATIVE_ROOT)</RatioNativeRoot>
   </PropertyGroup>
   <ItemGroup Condition="'$(RatioNativeRoot)' != ''">
-    <EmbeddedResource Include="$(RatioNativeRoot)\*.dll" LogicalName="service/native/bin/%(Filename)%(Extension)" />
+    <EmbeddedResource Include="$(RatioNativeRoot)\*.dll" Exclude="$(RatioNativeRoot)\cublas*.dll" LogicalName="service/native/bin/%(Filename)%(Extension)" />
   </ItemGroup>
   <Target Name="ValidateNativeRuntime" BeforeTargets="BeforeBuild" Condition="'$(RequireNativeRuntime)' == 'true'">
     <Error Condition="!Exists('$(RatioNativeRoot)\ratio-inference.dll')" Text="Native runtime missing: build-native.ps1 first; set RatioNativeRoot or RATIO_NATIVE_ROOT." />

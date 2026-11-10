@@ -14,7 +14,7 @@ powershell -NoProfile -ExecutionPolicy Bypass -File b-Code-Service/scripts/echo-
 dotnet build b-Code/Ratio/Ratio.csproj -c Release -p:RatioNativeRoot=<DLL目录> -p:RequireNativeRuntime=true
 ```
 
-DLL 随 Ratio.dll 嵌入并在首次启动时解出到运行区 `native/bin`，运行机无需安装编译工具。`-SourceArchive` 可使用已有的、校验匹配的上游源码包。`-BuildRoot` 应为新的临时构建目录；脚本不删除既有源码目录。`-CpuOnly` 只用于编译验证，不代表通过 CUDA 验收。
+Ratio 自有引擎和 ggml DLL 随 Ratio.dll 嵌入并在首次启动时解出到运行区 `native/bin`。NVIDIA 的 `cublas64_12.dll` 与 `cublasLt64_12.dll` 是机器运行依赖，不进入模块包：首次安装时，将 build-native 输出中的这两份 DLL 复制到运行区 `native/bin`。运行机无需编译工具；缺库时明确报错，不联网下载、不退回旧后端。`-SourceArchive` 可使用已有的、校验匹配的上游源码包。`-BuildRoot` 应为新的临时构建目录；脚本不删除既有源码目录。`-CpuOnly` 只用于编译验证，不代表通过 CUDA 验收。
 
 模块直接调用 C ABI；现有 JSON/SSE 处理器在同进程内继续向原推理队列提交任务。C# 的 `HttpRequestMessage` / `HttpResponseMessage` 在这里仅为内部请求和响应对象，不产生网络请求。远端供应商保持原 HTTP 传输。原生模式不提供外部 OpenAI HTTP 监听；外部消费者通过宿主 `ratio.*` 接入。
 
