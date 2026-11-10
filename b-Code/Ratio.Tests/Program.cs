@@ -30,6 +30,9 @@ var tests = new (string Name, Func<Task> Run)[]
     ("local status", TestLocalStatusAsync),
     ("local switch", TestLocalSwitchAsync),
     ("local start and stop", TestLocalStartStopAsync),
+    ("local automatic recovery", TestLocalRecoveryAsync),
+    ("local recovery boundaries", TestLocalRecoveryBoundariesAsync),
+    ("local recovery concurrency and cooldown", TestLocalRecoveryConcurrencyAsync),
     ("local commands", TestLocalCommandsAsync),
     ("adopt previous store", TestAdoptPreviousStoreAsync),
     ("service bundle", TestServiceBundleAsync),
@@ -1004,6 +1007,132 @@ static async Task TestLocalStartStopAsync()
     {
         Directory.Delete(root, recursive: true);
     }
+}
+
+static async Task TestLocalRecoveryAsync()
+{
+    using var scope = new StoreScope();
+    var running = false;
+    var launches = 0;
+    var root = Path.Combine(Path.GetTempPath(), "Ratio.Tests", Guid.NewGuid().ToString("N"));
+    Directory.CreateDirectory(Path.Combine(root, "scripts"));
+    File.WriteAllText(Path.Combine(root, "scripts", "start-wsl-model-service.ps1"), "# fake");
+    try
+    {
+        using var local = new LocalService(() => scope.Store.Resolve("local").BaseUrl,
+            FakeTransport.Http((request, _) => running && request.RequestUri!.AbsolutePath == "/v1/echo/models"
+                ? (HttpStatusCode.OK, LocalFixture.Inventory("qwen3:8b"))
+                : throw RefusedConnection()),
+            async (_, _, _, _, token) => { launches++; await Task.Delay(10, token); running = true; return 0; }, root);
+        var recovery = new LocalServiceRecovery(() => local.ServiceUrl,
+            async token => { await local.StartAsync(60, null, token); });
+        var calls = 0;
+        using var client = new ChatClient(new HttpClient(new LocalServiceRecoveryHandler(new FakeTransport((request, body) =>
+        {
+            calls++;
+            if (!running) throw RefusedConnection();
+            if (request.Method == HttpMethod.Get)
+                return (HttpStatusCode.OK, """{"data":[{"id":"qwen3:8b"}]}""");
+            True(body!.Contains("hello"), "重放必须保留请求体");
+            return (HttpStatusCode.OK, """{"model":"qwen3:8b","choices":[{"message":{"content":"ok"}}]}""");
+        }), recovery)));
+        var result = await client.CompleteAsync(scope.Store.Resolve("local"), [new ChatMessage("user", "hello")], new ChatOptions(), CancellationToken.None);
+        Equal("ok", result.Content);
+        Equal(1, launches);
+        Equal(3, calls); // GET 被拒、恢复后 GET、POST。
+        await local.StartAsync(60, null, CancellationToken.None);
+        Equal(1, launches);
+
+        // 自动与手动启动同时发生，也只能执行一次启动脚本。
+        running = false;
+        var starts = await Task.WhenAll(Enumerable.Range(0, 8).Select(_ => local.StartAsync(60, null, CancellationToken.None)));
+        Equal(2, launches);
+        Equal(1, starts.Count(item => item.Started));
+    }
+    finally { Directory.Delete(root, true); }
+}
+
+static HttpRequestException RefusedConnection()
+    => new("refused", new System.Net.Sockets.SocketException((int)System.Net.Sockets.SocketError.ConnectionRefused));
+
+static async Task TestLocalRecoveryBoundariesAsync()
+{
+    var starts = 0;
+    var recovery = new LocalServiceRecovery(() => "http://127.0.0.1:11435/v1", _ => { starts++; return Task.CompletedTask; });
+    foreach (var url in new[] { "https://example.com/v1/chat/completions", "http://127.0.0.1:11434/v1/models" })
+    {
+        using var other = new HttpClient(new LocalServiceRecoveryHandler(new FakeTransport((_, _) => throw RefusedConnection()), recovery));
+        await ThrowsAsync<HttpRequestException>(() => other.GetAsync(url));
+    }
+    using (var http = new HttpClient(new LocalServiceRecoveryHandler(new FakeTransport((_, _) => (HttpStatusCode.ServiceUnavailable, "busy")), recovery)))
+    using (var response = await http.GetAsync("http://127.0.0.1:11435/v1/models"))
+        Equal(HttpStatusCode.ServiceUnavailable, response.StatusCode);
+    using (var http = new HttpClient(new LocalServiceRecoveryHandler(new FakeTransport((_, _) => throw new HttpRequestException("DNS failed")), recovery)))
+        await ThrowsAsync<HttpRequestException>(() => http.GetAsync("http://127.0.0.1:11435/v1/models"));
+    using (var http = new HttpClient(new LocalServiceRecoveryHandler(new FakeTransport((_, _) => throw new TaskCanceledException("timeout")), recovery)))
+        await ThrowsAsync<TaskCanceledException>(() => http.GetAsync("http://127.0.0.1:11435/v1/models"));
+    Equal(0, starts);
+
+    var sends = 0;
+    using (var http = new HttpClient(new LocalServiceRecoveryHandler(new FakeTransport((_, _) => { sends++; throw RefusedConnection(); }), recovery)))
+        await ThrowsAsync<HttpRequestException>(() => http.GetAsync("http://127.0.0.1:11435/v1/models"));
+    Equal(1, starts);
+    Equal(2, sends); // 启动后仍拒绝连接，必须结束，不能无限重发。
+    recovery.Disable();
+    using (var http = new HttpClient(new LocalServiceRecoveryHandler(new FakeTransport((_, _) => throw RefusedConnection()), recovery)))
+        await ThrowsAsync<HttpRequestException>(() => http.GetAsync("http://127.0.0.1:11435/v1/models"));
+    Equal(1, starts);
+}
+
+static async Task TestLocalRecoveryConcurrencyAsync()
+{
+    var starts = 0;
+    var running = false;
+    var recovery = new LocalServiceRecovery(() => "http://127.0.0.1:11435/v1", async token =>
+    {
+        if (running) return;
+        starts++;
+        await Task.Delay(20, token);
+        running = true;
+    });
+    using (var http = new HttpClient(new LocalServiceRecoveryHandler(new FakeTransport((_, body) =>
+    {
+        if (!running) throw RefusedConnection();
+        return (HttpStatusCode.OK, body ?? "");
+    }), recovery)))
+    {
+        await Task.WhenAll(Enumerable.Range(0, 8).Select(async i =>
+        {
+            using var request = new HttpRequestMessage(HttpMethod.Post, "http://127.0.0.1:11435/completion") { Content = new StringContent($"body-{i}") };
+            using var response = await http.SendAsync(request);
+            Equal($"body-{i}", await response.Content.ReadAsStringAsync());
+        }));
+    }
+    Equal(1, starts);
+
+    starts = 0;
+    var failing = new LocalServiceRecovery(() => "http://127.0.0.1:11435/v1", _ =>
+    {
+        starts++;
+        throw new RatioRemoteException("fake startup failure");
+    });
+    using var failed = new HttpClient(new LocalServiceRecoveryHandler(new FakeTransport((_, _) => throw RefusedConnection()), failing));
+    for (var i = 0; i < 3; i++)
+        await ThrowsAsync<HttpRequestException>(() => failed.GetAsync("http://127.0.0.1:11435/v1/models"));
+    Equal(1, starts);
+
+    // 等待启动时可取消，取消不能锁死恢复门闩。
+    var entered = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+    var cancellable = new LocalServiceRecovery(() => "http://127.0.0.1:11435", async token =>
+    {
+        entered.TrySetResult();
+        await Task.Delay(Timeout.Infinite, token);
+    });
+    using var cancellation = new CancellationTokenSource();
+    var pending = cancellable.RecoverAsync(cancellation.Token);
+    await entered.Task;
+    cancellation.Cancel();
+    await ThrowsAsync<OperationCanceledException>(() => pending);
 }
 
 static Task TestLocalCommandsAsync()

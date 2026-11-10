@@ -61,6 +61,7 @@ internal sealed class LocalService : IDisposable
     private readonly HttpClient _http;
     private readonly ProcessRunner _run;
     private readonly Func<IReadOnlyList<ServiceFile>> _bundle;
+    private readonly SemaphoreSlim _startGate = new(1, 1);
 
     public LocalService(ProviderStore store)
         : this(() => store.Resolve(ProviderStore.LocalProvider).BaseUrl, new HttpClient(), RunProcessAsync, null, ServiceBundle.Load)
@@ -136,6 +137,19 @@ internal sealed class LocalService : IDisposable
     /// 只在没在跑时同步：正在跑的服务换脚本，停服时就会用上一半新一半旧的那套。
     /// </summary>
     public async Task<(LocalStatus Status, bool Started)> StartAsync(int timeoutSeconds, IProgress<string>? progress, CancellationToken cancellation)
+    {
+        await _startGate.WaitAsync(cancellation).ConfigureAwait(false);
+        try
+        {
+            return await StartCoreAsync(timeoutSeconds, progress, cancellation).ConfigureAwait(false);
+        }
+        finally
+        {
+            _startGate.Release();
+        }
+    }
+
+    private async Task<(LocalStatus Status, bool Started)> StartCoreAsync(int timeoutSeconds, IProgress<string>? progress, CancellationToken cancellation)
     {
         var status = await StatusAsync(cancellation).ConfigureAwait(false);
         if (status.Running)
