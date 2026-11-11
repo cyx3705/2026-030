@@ -43,7 +43,7 @@ internal static class RatioEmbedCommands
             Name = "ratio.embed.texts",
             Domain = "ratio",
             CommandClass = "embed",
-            Summary = "把一组文本转成向量，供语义检索用；默认通义千问 text-embedding-v4，按输入顺序返回。",
+            Summary = "批量把文本转成向量供语义检索",
             Example = "ratio.embed.texts texts=[\"新建项目\",\"创建新项目并初始化仓库\"] dimensions=512",
             // 0.9.0 实调：dimensions=8 被通义 400 拒（只认档位），所以示例写 512。
             Level = CommandLevel.Run,
